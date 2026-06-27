@@ -1,4 +1,7 @@
-"""Diagnose BP_Kristofer visibility and add strong local lighting + fixed exposure.
+"""Diagnose BP_Kristofer visibility and apply modest Lumen lighting.
+
+Emergency debug script — uses sane intensities (not the old 250000 point lights).
+Prefer tuning Lumen_DirectionalLight + Lumen_SkyLight in editor (~10–50 range).
 
 Run headless:
   UnrealEditor-Cmd.exe "D:/UE Projects/MetaHuman_Baseline_Test/UnrealPerformer.uproject"
@@ -8,12 +11,15 @@ Run headless:
 """
 from __future__ import annotations
 
-import math
-
 import unreal
 
 REPORT = "DiagnoseKristoferLighting.txt"
 _lines: list[str] = []
+
+# Modest defaults — exhibition daylight is Phase 5–6.
+DIRECTIONAL_INTENSITY = 5.0
+SKYLIGHT_INTENSITY = 1.0
+POST_EXPOSURE_BIAS = 1.0
 
 
 def log(msg: str) -> None:
@@ -44,25 +50,32 @@ def find_kristofer():
 def mesh_material_report(actor) -> None:
     log(f"Actor: {actor.get_actor_label()} class={actor.get_class().get_name()}")
     log(f"  Location: {actor.get_actor_location()}")
-    log(f"  HiddenInGame: {actor.is_hidden_ed()}")
     comps = actor.get_components_by_class(unreal.SkeletalMeshComponent)
     log(f"  SkeletalMeshComponents: {len(comps)}")
-    for idx, comp in enumerate(comps[:8]):
+    for idx, comp in enumerate(comps[:3]):
         mesh = comp.get_skeletal_mesh_asset()
         mesh_name = mesh.get_name() if mesh else "None"
         mats = comp.get_materials()
         log(f"    [{idx}] mesh={mesh_name} materials={len(mats)} visible={comp.is_visible()}")
-        for mid, mat in enumerate(mats[:3]):
-            mat_name = mat.get_name() if mat else "None"
-            log(f"         mat[{mid}]={mat_name}")
 
 
-def ensure_post_process() -> unreal.PostProcessVolume:
+def configure_post_process(actor: unreal.PostProcessVolume) -> None:
+    actor.set_editor_property("unbound", True)
+    settings = actor.get_editor_property("settings")
+    settings.set_editor_property("override_auto_exposure_method", True)
+    settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_BASIC)
+    settings.set_editor_property("override_auto_exposure_bias", True)
+    settings.set_editor_property("auto_exposure_bias", POST_EXPOSURE_BIAS)
+    actor.set_editor_property("settings", settings)
+    log(f"PostProcess: unbound, basic auto exposure bias {POST_EXPOSURE_BIAS}")
+
+
+def ensure_post_process() -> None:
     for actor in actors().get_all_level_actors():
         if isinstance(actor, unreal.PostProcessVolume):
             log(f"Updating PostProcessVolume: {actor.get_actor_label()}")
             configure_post_process(actor)
-            return actor
+            return
 
     actor = actors().spawn_actor_from_class(
         unreal.PostProcessVolume,
@@ -72,93 +85,46 @@ def ensure_post_process() -> unreal.PostProcessVolume:
     actor.set_actor_label("Kristofer_PostProcess")
     configure_post_process(actor)
     log("Spawned Kristofer_PostProcess")
-    return actor
 
 
-def configure_post_process(actor: unreal.PostProcessVolume) -> None:
-    actor.set_editor_property("unbound", True)
-    settings = actor.get_editor_property("settings")
-    settings.set_editor_property("override_auto_exposure_method", True)
-    settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
-    settings.set_editor_property("override_auto_exposure_bias", True)
-    settings.set_editor_property("auto_exposure_bias", 8.0)
-    settings.set_editor_property("override_auto_exposure_min_brightness", True)
-    settings.set_editor_property("auto_exposure_min_brightness", 0.5)
-    settings.set_editor_property("override_auto_exposure_max_brightness", True)
-    settings.set_editor_property("auto_exposure_max_brightness", 8.0)
-    actor.set_editor_property("settings", settings)
-    log("PostProcess: unbound, manual exposure bias 8")
+def configure_directional(actor: unreal.DirectionalLight) -> None:
+    comp = actor.get_component_by_class(unreal.DirectionalLightComponent)
+    if not comp:
+        return
+    comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+    comp.set_intensity(DIRECTIONAL_INTENSITY)
+    comp.set_cast_shadows(True)
+    comp.set_temperature(6500.0)
+    actor.set_actor_rotation(unreal.Rotator(-45.0, 135.0, 0.0), False)
+    log(f"DirectionalLight {actor.get_actor_label()} intensity {DIRECTIONAL_INTENSITY}")
 
 
-def spawn_point_light(location: unreal.Vector, label: str, intensity: float) -> None:
-    actor = actors().spawn_actor_from_class(
-        unreal.PointLight,
-        location,
-        unreal.Rotator(0.0, 0.0, 0.0),
-    )
-    actor.set_actor_label(label)
-    comp = actor.get_component_by_class(unreal.PointLightComponent)
-    if comp:
-        comp.set_mobility(unreal.ComponentMobility.MOVABLE)
-        comp.set_intensity(intensity)
-        comp.set_attenuation_radius(5000.0)
-        comp.set_cast_shadows(True)
-        comp.set_use_inverse_squared_falloff(False)
-    log(f"PointLight {label} at {location} intensity={intensity}")
+def configure_skylight(actor: unreal.SkyLight) -> None:
+    comp = actor.get_component_by_class(unreal.SkyLightComponent)
+    if not comp:
+        return
+    comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+    comp.set_intensity(SKYLIGHT_INTENSITY)
+    comp.set_real_time_capture(True)
+    comp.recapture_sky()
+    log(f"SkyLight {actor.get_actor_label()} intensity {SKYLIGHT_INTENSITY}")
 
 
-def aim_directional_at(target: unreal.Vector) -> None:
+def refresh_scene_lights() -> None:
+    has_directional = False
+    has_skylight = False
     for actor in actors().get_all_level_actors():
         if isinstance(actor, unreal.DirectionalLight):
-            comp = actor.get_component_by_class(unreal.DirectionalLightComponent)
-            if not comp:
-                continue
-            comp.set_mobility(unreal.ComponentMobility.MOVABLE)
-            comp.set_intensity(10.0)
-            actor.set_actor_rotation(unreal.Rotator(-45.0, 135.0, 0.0), False)
-            log(f"DirectionalLight {actor.get_actor_label()} intensity 10, aimed at scene")
+            configure_directional(actor)
+            has_directional = True
+        elif isinstance(actor, unreal.SkyLight):
+            configure_skylight(actor)
+            has_skylight = True
 
-
-def light_ring_around(target: unreal.Vector) -> None:
-    radius = 350.0
-    height = 220.0
-    intensity = 250000.0
-    for i, angle in enumerate((0.0, 90.0, 180.0, 270.0)):
-        rad = math.radians(angle)
-        loc = unreal.Vector(
-            target.x + math.cos(rad) * radius,
-            target.y + math.sin(rad) * radius,
-            target.z + height,
-        )
-        spawn_point_light(loc, f"Kristofer_KeyLight_{i}", intensity)
-
-    spawn_point_light(
-        unreal.Vector(target.x, target.y, target.z + 400.0),
-        "Kristofer_FillTop",
-        180000.0,
-    )
-
-
-def refresh_skylight() -> None:
-    for actor in actors().get_all_level_actors():
-        if isinstance(actor, unreal.SkyLight):
-            comp = actor.get_component_by_class(unreal.SkyLightComponent)
-            if not comp:
-                continue
-            comp.set_mobility(unreal.ComponentMobility.MOVABLE)
-            comp.set_intensity(2.0)
-            comp.set_real_time_capture(True)
-            comp.recapture_sky()
-            log(f"SkyLight {actor.get_actor_label()} intensity 2, recaptured")
-
-
-def write_report() -> None:
-    path = unreal.Paths.convert_relative_path_to_full(
-        unreal.Paths.project_saved_dir() + REPORT
-    )
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(_lines))
-    log(f"Report: {path}")
+    if not has_directional:
+        warn("No DirectionalLight — run fix_godfrey_world_lumen_lighting.py first")
+    if not has_skylight:
+        warn("No SkyLight — run fix_godfrey_world_lumen_lighting.py first")
 
 
 def raise_kristofer(actor) -> unreal.Vector:
@@ -171,6 +137,15 @@ def raise_kristofer(actor) -> unreal.Vector:
     return loc
 
 
+def write_report() -> None:
+    path = unreal.Paths.convert_relative_path_to_full(
+        unreal.Paths.project_saved_dir() + REPORT
+    )
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(_lines))
+    log(f"Report: {path}")
+
+
 def main() -> None:
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     log(f"World: {world.get_name() if world else 'None'}")
@@ -178,16 +153,13 @@ def main() -> None:
     kristofers = find_kristofer()
     if not kristofers:
         warn("No Kristofer actor found in level")
-        target = unreal.Vector(0.0, 0.0, 100.0)
     else:
         for actor in kristofers:
             mesh_material_report(actor)
-        target = raise_kristofer(kristofers[0])
+            raise_kristofer(actor)
 
     ensure_post_process()
-    aim_directional_at(target)
-    refresh_skylight()
-    light_ring_around(target)
+    refresh_scene_lights()
 
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
     log("save_dirty_packages OK")
