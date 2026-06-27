@@ -1,0 +1,115 @@
+=== Clean MetaHuman baseline migration plan ===
+Date: 2026-06-27
+Goal: Prove whether zoom shirt explosion is project contamination or universal MetaHuman/UE behavior.
+
+WHAT WE KNOW (Test_Live_Audio)
+- Erno_Stock_Test: no Godfrey bridge, no ACE wiring, still explodes on zoom.
+- No log lines on zoom (engine LODSync / copy-pose — not game code).
+- Every level load rebuilds Erno + Gavin garment/face meshes (DDC not saved).
+- Godfrey_Realtime_Stage still pulls Gavin assets on load.
+- Missing WP external actor EFKAKWW2KJJDW86S3C3AWO (broken stage references).
+- ACE + custom C++ module load at startup even for visual-only tests.
+
+CONCLUSION
+Stop patching Test_Live_Audio in place. Binary-search in a clean project first.
+
+================================================================================
+PHASE 0 — Clean baseline (NEW PROJECT)
+================================================================================
+Project: D:/UE Projects/MetaHuman_Baseline_Test/MetaHuman_Baseline_Test.uproject
+  - MetaHuman plugins ONLY
+  - NO NV_ACE_Reference, NO custom C++ module, NO Godfrey_Realtime_Stage
+
+Steps:
+  1. Open MetaHuman_Baseline_Test (or run Scripts/bootstrap_metahuman_baseline_project.ps1)
+  2. New level: Empty Open World (simple, non-WP exhibit)
+  3. Import Erno from MetaHuman Creator OR create stock MHC character
+  4. Place ONE MetaHuman in level, save map as Content/Maps/BaselineTest
+  5. Zoom viewport in/out (no Play)
+
+PASS GATE: Shirt stable at all zoom levels for 30+ seconds.
+FAIL GATE: Shirt explodes on zoom.
+
+If FAIL in Phase 0:
+  -> Not Test_Live_Audio contamination. Likely UE 5.6.1 MetaHuman editor viewport + LODSync.
+  -> Try: fresh MHC re-import, save all garment .uasset after first build, test UE 5.5 patch.
+  -> Do NOT migrate exhibition code until Phase 0 passes.
+
+If PASS in Phase 0:
+  -> Test_Live_Audio or Godfrey_Realtime_Stage is contaminated. Continue phases.
+
+================================================================================
+PHASE 1 — Match renderer settings from Test_Live_Audio
+================================================================================
+Copy from Test_Live_Audio/Config/DefaultEngine.ini into baseline project:
+  - r.GPUSkin.* , SkeletalMesh.UseExperimentalChunking, Lumen, RayTracing, etc.
+
+Re-test zoom on same MetaHuman in BaselineTest map.
+PASS/FAIL tells you if renderer project settings cause the bug.
+
+================================================================================
+PHASE 2 — Add empty C++ module (no Godfrey code)
+================================================================================
+Add blank Runtime module to baseline project, compile, re-test zoom.
+PASS/FAIL isolates custom module startup (ACE warmup, etc.).
+
+================================================================================
+PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)
+================================================================================
+Enable plugin in .uproject, restart editor, do NOT place ACE components.
+Re-test zoom.
+PASS/FAIL isolates ACE plugin load side effects.
+
+================================================================================
+PHASE 4 — Import Erno assets from Test_Live_Audio (not BP_Gavin)
+================================================================================
+Copy only:
+  - Content/MetaHumans/Erno/** (or re-import from MHC — preferred)
+  - Content/MetaHumans/Common/** if needed for garments
+Do NOT copy: BP_Gavin, Godfrey BPs, contaminated scripts, WP external actors.
+
+Re-test zoom.
+PASS/FAIL isolates asset corruption vs project shell.
+
+================================================================================
+PHASE 5 — Simple exhibit level (NOT Godfrey_Realtime_Stage yet)
+================================================================================
+New level, single floor + light + CineCamera at ~exhibit coords.
+Place Erno. No World Partition, no stray Gavin references.
+Re-test zoom.
+
+================================================================================
+PHASE 6 — Migrate stage geometry only
+================================================================================
+Import static mesh / lighting from Godfrey_Realtime_Stage into Phase 5 level.
+Still one Erno, no performer stack.
+Re-test zoom.
+
+================================================================================
+PHASE 7 — Exhibition wiring (one component at a time)
+================================================================================
+Only after Phase 0–6 pass. Add in order, zoom-test after each:
+  1. BP_Godfrey_Erno shell (meshes only, no bridge)
+  2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)
+  3. Body anim instance
+  4. ACE audio curve source
+  5. Speech / performance state
+  6. World Partition + exhibit placement
+
+Stop at first step that breaks zoom.
+
+================================================================================
+DO NOT USE AS ROLLBACK / DONOR
+================================================================================
+- BP_Gavin.uasset (reference hash only)
+- Duplicated Gavin performers
+- BP_MH_Godfrey, BP_Godfrey_Exhibition contaminated paths
+- fix_erno_editor_clothing_setup.py on stock paths
+- Godfrey_Realtime_Stage external actors until WP is rebuilt clean
+
+================================================================================
+QUICK LAUNCH
+================================================================================
+powershell -File "D:/UE Projects/Test_Live_Audio/Scripts/bootstrap_metahuman_baseline_project.ps1"
+
+Also available: D:/UE Projects/MyProject3 (MetaHuman plugins, no ACE) — may already suit Phase 0 if you import a character there.

@@ -1,0 +1,31 @@
+# Unreal Engine
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+Builds/
+*.sln
+*.suo
+*.xcodeproj
+*.xcworkspace
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+.vs/
+*.rsuser
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# MetaHuman stock assets — re-import via Quixel Bridge (see Docs/MetaHumanAssets.txt)
+Content/MetaHumans/
+
+# Don't ignore uproject or Config
