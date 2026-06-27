@@ -39,7 +39,7 @@ If PASS in Phase 0:
   -> Test_Live_Audio or Godfrey_Realtime_Stage is contaminated. Continue phases.
 
 ================================================================================
-PHASE 1 — Match renderer settings from Test_Live_Audio  [APPLIED 2026-06-27]
+PHASE 1 — Match renderer settings from Test_Live_Audio  [PASSED 2026-06-27]
 ================================================================================
 Copy from Test_Live_Audio/Config/DefaultEngine.ini into baseline project:
   - r.GPUSkin.* , SkeletalMesh.UseExperimentalChunking, Lumen, RayTracing, etc.
@@ -57,11 +57,27 @@ Applied to Config/DefaultEngine.ini:
 PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
 FAIL GATE: Shirt explodes on zoom → revert: git checkout phase0-kristofer-stable
 
+Lighting (Phase 1 only — not final look):
+  - Functional Lumen lights so MetaHuman is visible after r.AllowStaticLighting=False.
+  - Kristofer was at z=-30; raised to z=100. Tune intensities ~10–50 lux/candelas in editor.
+  - Ambient daylight / exhibition lighting comes in Phase 5–6 (not now).
+
+Git: tagged phase1-renderer-stable after PASS (push on confirmed gates only).
+
 ================================================================================
-PHASE 2 — Add empty C++ module (no Godfrey code)
+PHASE 2 — Add empty C++ module (no Godfrey code)  [APPLIED 2026-06-27]
 ================================================================================
 Add blank Runtime module to baseline project, compile, re-test zoom.
 PASS/FAIL isolates custom module startup (ACE warmup, etc.).
+
+Applied:
+  - Source/UnrealPerformer/ — empty primary game module (Core, Engine only)
+  - NO Godfrey code, NO ACE, NO startup side effects
+
+Build:
+  Build.bat UnrealPerformerEditor Win64 Development -Project=".../UnrealPerformer.uproject"
+
+PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
 
 ================================================================================
 PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)
@@ -88,12 +104,17 @@ New level, single floor + light + CineCamera at ~exhibit coords.
 Place Erno. No World Partition, no stray Gavin references.
 Re-test zoom.
 
+Target look: soft ambient daylight (replace Phase 1 test rig — directional + skylight
++ modest fill, not the emergency point-light ring).
+
 ================================================================================
 PHASE 6 — Migrate stage geometry only
 ================================================================================
 Import static mesh / lighting from Godfrey_Realtime_Stage into Phase 5 level.
 Still one Erno, no performer stack.
 Re-test zoom.
+
+Copy exhibition daylight setup from Godfrey_Realtime_Stage (HDRI/skylight/exhibit rigs).
 
 ================================================================================
 PHASE 7 — Exhibition wiring (one component at a time)
