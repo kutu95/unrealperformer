@@ -39,13 +39,23 @@ If PASS in Phase 0:
   -> Test_Live_Audio or Godfrey_Realtime_Stage is contaminated. Continue phases.
 
 ================================================================================
-PHASE 1 — Match renderer settings from Test_Live_Audio
+PHASE 1 — Match renderer settings from Test_Live_Audio  [APPLIED 2026-06-27]
 ================================================================================
 Copy from Test_Live_Audio/Config/DefaultEngine.ini into baseline project:
   - r.GPUSkin.* , SkeletalMesh.UseExperimentalChunking, Lumen, RayTracing, etc.
 
-Re-test zoom on same MetaHuman in BaselineTest map.
+Re-test zoom on Kristofer in Godfrey_World map.
 PASS/FAIL tells you if renderer project settings cause the bug.
+
+Applied to Config/DefaultEngine.ini:
+  - Lumen (DynamicGlobalIlluminationMethod=1, ReflectionMethod=1)
+  - Ray tracing + virtual shadow maps
+  - Mesh distance fields, static lighting off
+  - D3D12 SM6 / Vulkan SM6, HardwareTargeting Maximum
+  - NOT copied: ACE settings, Godfrey settings, map redirects, C++ module refs
+
+PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
+FAIL GATE: Shirt explodes on zoom → revert: git checkout phase0-kristofer-stable
 
 ================================================================================
 PHASE 2 — Add empty C++ module (no Godfrey code)
