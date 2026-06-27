@@ -81,7 +81,7 @@ PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
 Tagged: phase2-cpp-stable
 
 ================================================================================
-PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)  [APPLIED 2026-06-27]
+PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)  [PASSED 2026-06-27]
 ================================================================================
 Enable plugin in .uproject, restart editor, do NOT place ACE components.
 Re-test zoom.
@@ -94,17 +94,23 @@ Applied:
   - NO Godfrey/ACE DefaultEngine.ini settings
 
 PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
+Tagged: phase3-ace-plugin-stable
 
 ================================================================================
-PHASE 4 — Import Erno assets from Test_Live_Audio (not BP_Gavin)
+PHASE 4 — Import Erno (fresh via Bridge, not Test_Live_Audio donors)  [READY]
 ================================================================================
 Copy only:
   - Content/MetaHumans/Erno/** (or re-import from MHC — preferred)
   - Content/MetaHumans/Common/** if needed for garments
 Do NOT copy: BP_Gavin, Godfrey BPs, contaminated scripts, WP external actors.
 
-Re-test zoom.
-PASS/FAIL isolates asset corruption vs project shell.
+Steps:
+  1. Quixel Bridge -> MetaHumans -> Erno -> Add to Project
+  2. Run Scripts/setup_phase4_erno_in_godfrey_world.py on Godfrey_World
+  3. Zoom-test BP_Erno_Phase4 (see Docs/Phase4ErnoImport.txt)
+
+PASS GATE: Zoom Erno in Godfrey_World — shirt stable 30+ seconds.
+FAIL GATE: Shirt explodes -> try fresh MHC re-export before blaming wiring.
 
 ================================================================================
 PHASE 5 — Simple exhibit level (NOT Godfrey_Realtime_Stage yet)
