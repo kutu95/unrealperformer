@@ -28,4 +28,7 @@ Thumbs.db
 # MetaHuman stock assets — re-import via Quixel Bridge (see Docs/MetaHumanAssets.txt)
 Content/MetaHumans/
 
+# ACE plugin — junction/copy from Test_Live_Audio (see Docs/ACEPlugin.txt)
+Plugins/NV_ACE_Reference/
+
 # Don't ignore uproject or Config

@@ -65,7 +65,7 @@ Lighting (Phase 1 only — not final look):
 Git: tagged phase1-renderer-stable after PASS (push on confirmed gates only).
 
 ================================================================================
-PHASE 2 — Add empty C++ module (no Godfrey code)  [APPLIED 2026-06-27]
+PHASE 2 — Add empty C++ module (no Godfrey code)  [PASSED 2026-06-27]
 ================================================================================
 Add blank Runtime module to baseline project, compile, re-test zoom.
 PASS/FAIL isolates custom module startup (ACE warmup, etc.).
@@ -78,13 +78,22 @@ Build:
   Build.bat UnrealPerformerEditor Win64 Development -Project=".../UnrealPerformer.uproject"
 
 PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
+Tagged: phase2-cpp-stable
 
 ================================================================================
-PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)
+PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)  [APPLIED 2026-06-27]
 ================================================================================
 Enable plugin in .uproject, restart editor, do NOT place ACE components.
 Re-test zoom.
 PASS/FAIL isolates ACE plugin load side effects.
+
+Applied:
+  - NV_ACE_Reference enabled in UnrealPerformer.uproject
+  - Plugins/NV_ACE_Reference junction -> Test_Live_Audio (see Docs/ACEPlugin.txt)
+  - NO ACE components on Godfrey_World
+  - NO Godfrey/ACE DefaultEngine.ini settings
+
+PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
 
 ================================================================================
 PHASE 4 — Import Erno assets from Test_Live_Audio (not BP_Gavin)

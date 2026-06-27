@@ -1,0 +1,15 @@
+NV_ACE_Reference is NOT stored in git.
+
+Phase 3+ requires the NVIDIA ACE plugin locally. On this machine it is linked from:
+
+  Test_Live_Audio/Plugins/NV_ACE_Reference
+
+Setup (if junction is missing after clone):
+  mklink /J "D:\UE Projects\MetaHuman_Baseline_Test\Plugins\NV_ACE_Reference" ^
+    "D:\UE Projects\Test_Live_Audio\Plugins\NV_ACE_Reference"
+
+Or copy the plugin folder from Test_Live_Audio / Epic Marketplace install.
+
+Phase 3: plugin enabled in UnrealPerformer.uproject only.
+  - NO ACE components on Godfrey_World
+  - NO Godfrey C++ startup settings in DefaultEngine.ini
