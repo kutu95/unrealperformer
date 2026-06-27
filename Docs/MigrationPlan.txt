@@ -2,6 +2,9 @@
 Date: 2026-06-27
 Goal: Prove whether zoom shirt explosion is project contamination or universal MetaHuman/UE behavior.
 
+PERFORMER: Kristofer (Christopher from Quixel Bridge) — all phases use BP_Kristofer.
+Erno is NOT part of this migration. Swap character only after wiring is proven stable.
+
 WHAT WE KNOW (Test_Live_Audio)
 - Erno_Stock_Test: no Godfrey bridge, no ACE wiring, still explodes on zoom.
 - No log lines on zoom (engine LODSync / copy-pose — not game code).
@@ -14,128 +17,62 @@ CONCLUSION
 Stop patching Test_Live_Audio in place. Binary-search in a clean project first.
 
 ================================================================================
-PHASE 0 — Clean baseline (NEW PROJECT)
+PHASE 0 — Clean baseline (NEW PROJECT)  [PASSED]
 ================================================================================
 Project: D:/UE Projects/UnrealPerformer/UnrealPerformer.uproject
   - MetaHuman plugins ONLY
   - NO NV_ACE_Reference, NO custom C++ module, NO Godfrey_Realtime_Stage
 
 Steps:
-  1. Open UnrealPerformer (or run Scripts/bootstrap_metahuman_baseline_project.ps1)
-  2. New level: Empty Open World (simple, non-WP exhibit)
-  3. Import Erno from MetaHuman Creator OR create stock MHC character
-  4. Place ONE MetaHuman in level, save map as Content/Maps/BaselineTest
+  1. Open UnrealPerformer
+  2. New level: Godfrey_World (Open World)
+  3. Import Kristofer (Christopher) from Quixel Bridge
+  4. Place BP_Kristofer in level, save
   5. Zoom viewport in/out (no Play)
 
 PASS GATE: Shirt stable at all zoom levels for 30+ seconds.
-FAIL GATE: Shirt explodes on zoom.
-
-If FAIL in Phase 0:
-  -> Not Test_Live_Audio contamination. Likely UE 5.6.1 MetaHuman editor viewport + LODSync.
-  -> Try: fresh MHC re-import, save all garment .uasset after first build, test UE 5.5 patch.
-  -> Do NOT migrate exhibition code until Phase 0 passes.
-
-If PASS in Phase 0:
-  -> Test_Live_Audio or Godfrey_Realtime_Stage is contaminated. Continue phases.
+Tagged: phase0-kristofer-stable
 
 ================================================================================
 PHASE 1 — Match renderer settings from Test_Live_Audio  [PASSED 2026-06-27]
 ================================================================================
-Copy from Test_Live_Audio/Config/DefaultEngine.ini into baseline project:
-  - r.GPUSkin.* , SkeletalMesh.UseExperimentalChunking, Lumen, RayTracing, etc.
-
-Re-test zoom on Kristofer in Godfrey_World map.
-PASS/FAIL tells you if renderer project settings cause the bug.
-
-Applied to Config/DefaultEngine.ini:
-  - Lumen (DynamicGlobalIlluminationMethod=1, ReflectionMethod=1)
-  - Ray tracing + virtual shadow maps
-  - Mesh distance fields, static lighting off
-  - D3D12 SM6 / Vulkan SM6, HardwareTargeting Maximum
-  - NOT copied: ACE settings, Godfrey settings, map redirects, C++ module refs
-
-PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
-FAIL GATE: Shirt explodes on zoom → revert: git checkout phase0-kristofer-stable
-
-Lighting (Phase 1 only — not final look):
-  - Functional Lumen lights so MetaHuman is visible after r.AllowStaticLighting=False.
-  - Kristofer was at z=-30; raised to z=100. Tune intensities ~10–50 lux/candelas in editor.
-  - Ambient daylight / exhibition lighting comes in Phase 5–6 (not now).
-
-Git: tagged phase1-renderer-stable after PASS (push on confirmed gates only).
+Re-test zoom on Kristofer in Godfrey_World.
+Tagged: phase1-renderer-stable
 
 ================================================================================
 PHASE 2 — Add empty C++ module (no Godfrey code)  [PASSED 2026-06-27]
 ================================================================================
-Add blank Runtime module to baseline project, compile, re-test zoom.
-PASS/FAIL isolates custom module startup (ACE warmup, etc.).
-
-Applied:
-  - Source/UnrealPerformer/ — empty primary game module (Core, Engine only)
-  - NO Godfrey code, NO ACE, NO startup side effects
-
-Build:
-  Build.bat UnrealPerformerEditor Win64 Development -Project=".../UnrealPerformer.uproject"
-
-PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
 Tagged: phase2-cpp-stable
 
 ================================================================================
 PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)  [PASSED 2026-06-27]
 ================================================================================
-Enable plugin in .uproject, restart editor, do NOT place ACE components.
-Re-test zoom.
-PASS/FAIL isolates ACE plugin load side effects.
-
-Applied:
-  - NV_ACE_Reference enabled in UnrealPerformer.uproject
-  - Plugins/NV_ACE_Reference junction -> Test_Live_Audio (see Docs/ACEPlugin.txt)
-  - NO ACE components on Godfrey_World
-  - NO Godfrey/ACE DefaultEngine.ini settings
-
-PASS GATE: Zoom Kristofer in Godfrey_World — shirt stable 30+ seconds.
 Tagged: phase3-ace-plugin-stable
 
 ================================================================================
-PHASE 4 — Import Erno (fresh via Bridge, not Test_Live_Audio donors)  [READY]
+PHASE 4 — Simple exhibit level (NOT Godfrey_Realtime_Stage yet)  [NEXT]
 ================================================================================
-Copy only:
-  - Content/MetaHumans/Erno/** (or re-import from MHC — preferred)
-  - Content/MetaHumans/Common/** if needed for garments
-Do NOT copy: BP_Gavin, Godfrey BPs, contaminated scripts, WP external actors.
+New level OR extend Godfrey_World with exhibit floor + daylight lighting.
+Place BP_Kristofer only. No World Partition exhibit stage, no Gavin references.
 
-Steps:
-  1. Quixel Bridge -> MetaHumans -> Erno -> Add to Project
-  2. Run Scripts/setup_phase4_erno_in_godfrey_world.py on Godfrey_World
-  3. Zoom-test BP_Erno_Phase4 (see Docs/Phase4ErnoImport.txt)
+Target look: soft ambient daylight (replace Phase 1 test rig).
 
-PASS GATE: Zoom Erno in Godfrey_World — shirt stable 30+ seconds.
-FAIL GATE: Shirt explodes -> try fresh MHC re-export before blaming wiring.
+PASS GATE: Zoom Kristofer — shirt stable 30+ seconds.
 
 ================================================================================
-PHASE 5 — Simple exhibit level (NOT Godfrey_Realtime_Stage yet)
+PHASE 5 — Migrate stage geometry only
 ================================================================================
-New level, single floor + light + CineCamera at ~exhibit coords.
-Place Erno. No World Partition, no stray Gavin references.
-Re-test zoom.
-
-Target look: soft ambient daylight (replace Phase 1 test rig — directional + skylight
-+ modest fill, not the emergency point-light ring).
-
-================================================================================
-PHASE 6 — Migrate stage geometry only
-================================================================================
-Import static mesh / lighting from Godfrey_Realtime_Stage into Phase 5 level.
-Still one Erno, no performer stack.
+Import static mesh / lighting from Godfrey_Realtime_Stage.
+Still BP_Kristofer only, no performer stack.
 Re-test zoom.
 
 Copy exhibition daylight setup from Godfrey_Realtime_Stage (HDRI/skylight/exhibit rigs).
 
 ================================================================================
-PHASE 7 — Exhibition wiring (one component at a time)
+PHASE 6 — Exhibition wiring for Kristofer (one component at a time)
 ================================================================================
-Only after Phase 0–6 pass. Add in order, zoom-test after each:
-  1. BP_Godfrey_Erno shell (meshes only, no bridge)
+Only after Phase 0–5 pass. Add in order, zoom-test after each:
+  1. Godfrey performer BP shell around Kristofer (meshes only, no bridge)
   2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)
   3. Body anim instance
   4. ACE audio curve source
@@ -152,10 +89,11 @@ DO NOT USE AS ROLLBACK / DONOR
 - BP_MH_Godfrey, BP_Godfrey_Exhibition contaminated paths
 - fix_erno_editor_clothing_setup.py on stock paths
 - Godfrey_Realtime_Stage external actors until WP is rebuilt clean
+- Erno assets from Test_Live_Audio (contaminated; not needed for Kristofer path)
 
 ================================================================================
 QUICK LAUNCH
 ================================================================================
-powershell -File "D:/UE Projects/Test_Live_Audio/Scripts/bootstrap_metahuman_baseline_project.ps1"
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe" "D:\UE Projects\MetaHuman_Baseline_Test\UnrealPerformer.uproject"
 
-Also available: D:/UE Projects/MyProject3 (MetaHuman plugins, no ACE) — may already suit Phase 0 if you import a character there.
+Git: push/tag GitHub only after you confirm PASS on each phase gate.

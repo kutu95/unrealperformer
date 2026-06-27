@@ -6,7 +6,7 @@ Clean MetaHuman baseline for the Godfrey live-audio exhibition performer (UE 5.6
 
 - **Project:** `UnrealPerformer` (`D:\UE Projects\UnrealPerformer`)
 - **Level:** `Content/Godfrey_World.umap`
-- **MetaHuman:** Kristofer (Christopher from Quixel Bridge)
+- **MetaHuman:** Kristofer (Christopher from Quixel Bridge) — all migration phases use this character, not Erno
 - **Test:** Viewport zoom in/out — clothing stays stable (no shirt explosion)
 
 ## Open in Unreal
