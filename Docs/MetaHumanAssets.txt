@@ -6,7 +6,7 @@ This repo only tracks project-specific customizations (levels, config, wiring).
 After cloning or reverting, restore the MetaHuman locally:
 
 Phase 0 baseline character
-  1. Open MetaHuman_Baseline_Test in UE 5.6
+  1. Open UnrealPerformer in UE 5.6
   2. Quixel Bridge -> MetaHumans -> Christopher (on disk: Kristofer)
   3. Add to Project
   4. Open level Godfrey_World and confirm BP_Kristofer is placed

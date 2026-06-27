@@ -16,12 +16,12 @@ Stop patching Test_Live_Audio in place. Binary-search in a clean project first.
 ================================================================================
 PHASE 0 — Clean baseline (NEW PROJECT)
 ================================================================================
-Project: D:/UE Projects/MetaHuman_Baseline_Test/MetaHuman_Baseline_Test.uproject
+Project: D:/UE Projects/UnrealPerformer/UnrealPerformer.uproject
   - MetaHuman plugins ONLY
   - NO NV_ACE_Reference, NO custom C++ module, NO Godfrey_Realtime_Stage
 
 Steps:
-  1. Open MetaHuman_Baseline_Test (or run Scripts/bootstrap_metahuman_baseline_project.ps1)
+  1. Open UnrealPerformer (or run Scripts/bootstrap_metahuman_baseline_project.ps1)
   2. New level: Empty Open World (simple, non-WP exhibit)
   3. Import Erno from MetaHuman Creator OR create stock MHC character
   4. Place ONE MetaHuman in level, save map as Content/Maps/BaselineTest

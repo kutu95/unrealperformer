@@ -4,7 +4,7 @@ Clean MetaHuman baseline for the Godfrey live-audio exhibition performer (UE 5.6
 
 ## Known-good checkpoint (Phase 0)
 
-- **Project:** `MetaHuman_Baseline_Test`
+- **Project:** `UnrealPerformer` (`D:\UE Projects\UnrealPerformer`)
 - **Level:** `Content/Godfrey_World.umap`
 - **MetaHuman:** Kristofer (Christopher from Quixel Bridge)
 - **Test:** Viewport zoom in/out — clothing stays stable (no shirt explosion)
@@ -12,7 +12,7 @@ Clean MetaHuman baseline for the Godfrey live-audio exhibition performer (UE 5.6
 ## Open in Unreal
 
 1. Epic Games Launcher → UE **5.6**
-2. Open `MetaHuman_Baseline_Test.uproject`
+2. Open `UnrealPerformer.uproject`
 3. Level: **Godfrey_World**
 
 ## Revert to this state
