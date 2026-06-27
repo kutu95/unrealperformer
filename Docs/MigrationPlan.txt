@@ -50,12 +50,16 @@ PHASE 3 — Add NV_ACE_Reference plugin (disabled on map)  [PASSED 2026-06-27]
 Tagged: phase3-ace-plugin-stable
 
 ================================================================================
-PHASE 4 — Simple exhibit level (NOT Godfrey_Realtime_Stage yet)  [NEXT]
+PHASE 4 — Simple exhibit level (NOT Godfrey_Realtime_Stage yet)  [APPLIED 2026-06-27]
 ================================================================================
-New level OR extend Godfrey_World with exhibit floor + daylight lighting.
-Place BP_Kristofer only. No World Partition exhibit stage, no Gavin references.
+Simple exhibit on Godfrey_World — floor, soft daylight, Kristofer only.
 
-Target look: soft ambient daylight (replace Phase 1 test rig).
+Applied (Scripts/setup_phase4_kristofer_exhibit.py):
+  - Exhibit_Floor (50m plane at z=0)
+  - Soft daylight: directional lux=4, skylight 1.2, auto exposure
+  - Removed emergency Kristofer_KeyLight_* test rig
+  - Exhibit_CineCamera for framing
+  - BP_Kristofer at ~(440, 0, 100)
 
 PASS GATE: Zoom Kristofer — shirt stable 30+ seconds.
 
