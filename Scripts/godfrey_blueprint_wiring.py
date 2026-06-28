@@ -27,8 +27,17 @@ FORBIDDEN_STEP4_COMPONENTS = (
     "GodfreyDirectSpeechComponent",
 )
 
+FORBIDDEN_STEP5_COMPONENTS = (
+    "GodfreyAceWarmupComponent",
+    "GodfreyGazeReactionComponent",
+    "AudioCaptureComponent",
+    "GodfreyDirectSpeechComponent",
+)
+
 ACE_CURVE_SOURCE_CLASS = "/Script/ACERuntime.ACEAudioCurveSourceComponent"
 ACE_CURVE_SOURCE_LABEL = "ACEAudioCurveSource"
+PERFORMANCE_STATE_CLASS = "/Script/UnrealPerformer.GodfreyPerformanceStateComponent"
+PERFORMANCE_STATE_LABEL = "GodfreyPerformanceState"
 FACE_ANIM_BP_PATH = "/Game/MetaHumans/Common/Face/Face_AnimBP"
 
 
@@ -378,4 +387,65 @@ def audit_step4_blueprint(bp) -> dict[str, object]:
     core["ace_present"] = True
     core["ace_label"] = ace_label
     core["ace_bAutoActivate"] = auto_activate
+    return core
+
+
+def add_performance_state(bp) -> bool:
+    return add_component_to_blueprint(
+        bp, PERFORMANCE_STATE_LABEL, PERFORMANCE_STATE_CLASS, "actor"
+    )
+
+
+def configure_performance_state(bp) -> dict[str, str]:
+    state, state_label = find_component_by_class(bp, "GodfreyPerformanceStateComponent")
+    if not state:
+        raise RuntimeError("GodfreyPerformanceStateComponent not found on performer BP")
+
+    changes: dict[str, str] = {"state_label": state_label or PERFORMANCE_STATE_LABEL}
+    for names, value, key in (
+        (["b_auto_activate", "bAutoActivate"], False, "bAutoActivate"),
+        (
+            ["b_auto_speaking_state_from_utterance", "bAutoSpeakingStateFromUtterance"],
+            False,
+            "bAutoSpeakingStateFromUtterance",
+        ),
+        (
+            ["b_route_performance_cues_to_states", "bRoutePerformanceCuesToStates"],
+            False,
+            "bRoutePerformanceCuesToStates",
+        ),
+    ):
+        if set_prop(state, names, value):
+            changes[key] = str(value)
+    return changes
+
+
+def audit_step5_blueprint(bp) -> dict[str, object]:
+    forbidden = _forbidden_components(bp, FORBIDDEN_STEP5_COMPONENTS)
+    if forbidden:
+        raise RuntimeError("Step 5 must not include speech capture/warmup/gaze yet: " + ", ".join(forbidden))
+
+    core = audit_step4_blueprint(bp)
+
+    state, state_label = find_component_by_class(bp, "GodfreyPerformanceStateComponent")
+    if not state:
+        raise RuntimeError("Missing GodfreyPerformanceStateComponent")
+
+    auto_activate = None
+    for names in (["b_auto_activate", "bAutoActivate"],):
+        try:
+            auto_activate = state.get_editor_property(names[0])
+            break
+        except Exception:
+            try:
+                auto_activate = state.get_editor_property(names[1])
+                break
+            except Exception:
+                pass
+
+    if auto_activate is not False:
+        raise RuntimeError(f"PerformanceState bAutoActivate must be False (got {auto_activate!r})")
+
+    core["performance_state_present"] = True
+    core["performance_state_label"] = state_label
     return core

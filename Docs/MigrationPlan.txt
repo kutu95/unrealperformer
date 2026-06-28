@@ -92,7 +92,7 @@ Only after Phase 0–5 pass. Add in order, zoom-test after each:
   2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)  [PASSED 2026-06-28]
   3. Body anim instance  [PASSED 2026-06-28]
   4. ACE audio curve source  [PASSED 2026-06-28]
-  5. Speech / performance state
+  5. Speech / performance state  [SCRIPT READY]
   6. World Partition + exhibit placement
 
 Step 1 scripts (2026-06-28):
@@ -127,6 +127,13 @@ Step 4 (2026-06-28):
   - Docs/UE56 + .cursor/rules/ue56-only.mdc — Cursor must use UE 5.6.1 instructions only
 
 PASS GATE (step 4): zoom shirt 30+ s with ACE component present but inactive.  PASSED.
+
+Step 5 (2026-06-28):
+  - setup_phase6_step5_performance_state.py — GodfreyPerformanceStateComponent on actor
+  - bAutoActivate=false, bAutoSpeakingStateFromUtterance=false, bRoutePerformanceCuesToStates=false
+  - Bridge + ACE remain inert; no DirectSpeech / AudioCapture / AceWarmup / Gaze
+
+PASS GATE (step 5): zoom shirt 30+ s with idle performance state bus only.
 
 Stop at first step that breaks zoom.
 DO NOT USE AS ROLLBACK / DONOR
