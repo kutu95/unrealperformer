@@ -137,7 +137,9 @@ PASS GATE (step 5): zoom shirt 30+ s with idle performance state bus only.  PASS
 
 Step 6 (2026-06-28):
   - setup_phase6_step6_exhibit_finalize.py — confirm BP stack + Godfrey_World placement + verify
-  - Editor preferred for level save; headless verify gate after
+  - EDITOR ONLY for performer swap/save (Tools > Execute Python Script; wp.Editor.LoadAllCells first)
+  - Headless: BP audit + read-only verify only
+  - Level currently has BP_Kristofer — editor run swaps to BP_Godfrey_Performer
 
 PASS GATE (step 6): verify_godfrey_exhibit.py PASS + zoom shirt 30+ s (full Phase 6 stack).
 
