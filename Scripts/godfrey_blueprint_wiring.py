@@ -344,49 +344,42 @@ def add_ace_curve_source(bp) -> bool:
     return add_component_to_blueprint(bp, ACE_CURVE_SOURCE_LABEL, ACE_CURVE_SOURCE_CLASS, "root")
 
 
+def _get_bool_prop(component, names: tuple[str, ...]) -> object:
+    for name in names:
+        try:
+            return component.get_editor_property(name)
+        except Exception:
+            continue
+    return None
+
+
+def audit_ace_inert(bp) -> dict[str, object]:
+    ace, ace_label = find_component_by_class(bp, "ACEAudioCurveSourceComponent")
+    if not ace:
+        raise RuntimeError("Missing ACEAudioCurveSourceComponent")
+
+    auto_activate = _get_bool_prop(ace, ("b_auto_activate", "bAutoActivate"))
+    if auto_activate is not False:
+        raise RuntimeError(f"ACE bAutoActivate must be False (got {auto_activate!r})")
+
+    debug = _get_bool_prop(ace, ("b_enable_attenuation_debug", "bEnableAttenuationDebug"))
+    if debug is not False:
+        raise RuntimeError(f"ACE bEnableAttenuationDebug must be False (got {debug!r})")
+
+    return {
+        "ace_present": True,
+        "ace_label": ace_label,
+        "ace_bAutoActivate": auto_activate,
+    }
+
+
 def audit_step4_blueprint(bp) -> dict[str, object]:
     forbidden = _forbidden_components(bp, FORBIDDEN_STEP4_COMPONENTS)
     if forbidden:
         raise RuntimeError("Step 4 must not include speech/warmup/capture yet: " + ", ".join(forbidden))
 
-    ace, ace_label = find_component_by_class(bp, "ACEAudioCurveSourceComponent")
-    if not ace:
-        raise RuntimeError("Missing ACEAudioCurveSourceComponent")
-
     core = audit_core_performer_stack(bp)
-    auto_activate = None
-    for names in (["b_auto_activate", "bAutoActivate"],):
-        try:
-            auto_activate = ace.get_editor_property(names[0])
-            break
-        except Exception:
-            try:
-                auto_activate = ace.get_editor_property(names[1])
-                break
-            except Exception:
-                pass
-
-    if auto_activate is not False:
-        raise RuntimeError(f"ACE bAutoActivate must be False for step 4 (got {auto_activate!r})")
-
-    debug = None
-    for names in (["b_enable_attenuation_debug", "bEnableAttenuationDebug"],):
-        try:
-            debug = ace.get_editor_property(names[0])
-            break
-        except Exception:
-            try:
-                debug = ace.get_editor_property(names[1])
-                break
-            except Exception:
-                pass
-
-    if debug is not False:
-        raise RuntimeError(f"ACE bEnableAttenuationDebug must be False (got {debug!r})")
-
-    core["ace_present"] = True
-    core["ace_label"] = ace_label
-    core["ace_bAutoActivate"] = auto_activate
+    core.update(audit_ace_inert(bp))
     return core
 
 
@@ -425,24 +418,14 @@ def audit_step5_blueprint(bp) -> dict[str, object]:
     if forbidden:
         raise RuntimeError("Step 5 must not include speech capture/warmup/gaze yet: " + ", ".join(forbidden))
 
-    core = audit_step4_blueprint(bp)
+    core = audit_core_performer_stack(bp)
+    core.update(audit_ace_inert(bp))
 
     state, state_label = find_component_by_class(bp, "GodfreyPerformanceStateComponent")
     if not state:
         raise RuntimeError("Missing GodfreyPerformanceStateComponent")
 
-    auto_activate = None
-    for names in (["b_auto_activate", "bAutoActivate"],):
-        try:
-            auto_activate = state.get_editor_property(names[0])
-            break
-        except Exception:
-            try:
-                auto_activate = state.get_editor_property(names[1])
-                break
-            except Exception:
-                pass
-
+    auto_activate = _get_bool_prop(state, ("b_auto_activate", "bAutoActivate"))
     if auto_activate is not False:
         raise RuntimeError(f"PerformanceState bAutoActivate must be False (got {auto_activate!r})")
 
