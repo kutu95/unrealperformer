@@ -162,6 +162,10 @@ C++ ported to UnrealPerformer module:
   - AsyncActionStreamGodfreySpeech, GodfreyPcmStreamSession
   - UnrealPerformerGodfreySettings + ACE startup in UnrealPerformer.cpp
 
+Plugins required (junction from Test_Live_Audio — see Docs/ACEPlugin.txt):
+  - NV_ACE_Reference
+  - NvAudio2FaceMark  (registers LocalA2F-Mark — without it ACE rejects all audio chunks)
+
 Script:
   - setup_phase7_step1_speech_lipsync_only.py (headless BP edit)
 

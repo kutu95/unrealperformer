@@ -1,15 +1,22 @@
-NV_ACE_Reference is NOT stored in git.
+NV_ACE_Reference and NvAudio2FaceMark are NOT stored in git.
 
-Phase 3+ requires the NVIDIA ACE plugin locally. On this machine it is linked from:
+Phase 3+ requires the NVIDIA ACE plugin locally. On this machine they are linked from Test_Live_Audio:
 
   Test_Live_Audio/Plugins/NV_ACE_Reference
+  Test_Live_Audio/Plugins/NvAudio2FaceMark   <-- registers LocalA2F-Mark provider (required for lip sync)
 
-Setup (if junction is missing after clone):
+Setup (if junctions are missing after clone):
   mklink /J "D:\UE Projects\MetaHuman_Baseline_Test\Plugins\NV_ACE_Reference" ^
     "D:\UE Projects\Test_Live_Audio\Plugins\NV_ACE_Reference"
 
-Or copy the plugin folder from Test_Live_Audio / Epic Marketplace install.
+  mklink /J "D:\UE Projects\MetaHuman_Baseline_Test\Plugins\NvAudio2FaceMark" ^
+    "D:\UE Projects\Test_Live_Audio\Plugins\NvAudio2FaceMark"
 
-Phase 3: plugin enabled in UnrealPerformer.uproject only.
-  - NO ACE components on Godfrey_World
-  - NO Godfrey C++ startup settings in DefaultEngine.ini
+Or copy both plugin folders from Test_Live_Audio / Epic Marketplace install.
+
+Phase 7 speech requires BOTH plugins enabled in UnrealPerformer.uproject.
+Without NvAudio2FaceMark you will see:
+  LogACERuntime: No A2F-3D provider available to create A2F-3D session
+  ACE rejected audio chunk for provider 'LocalA2F-Mark'
+
+Verify at editor startup: LogACEA2FLocalMark: Loaded NvAudio2FaceMark plugin
