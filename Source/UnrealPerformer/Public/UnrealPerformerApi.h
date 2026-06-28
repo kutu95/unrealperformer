@@ -1,8 +1,5 @@
 #pragma once
 
-#include "CoreMinimal.h"
-#include "Modules/ModuleManager.h"
-
 #ifndef UNREAL_PERFORMER_API
 #define UNREAL_PERFORMER_API
 #endif
