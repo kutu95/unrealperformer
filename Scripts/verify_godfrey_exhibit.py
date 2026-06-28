@@ -16,8 +16,8 @@ import sys
 import unreal
 
 REPORT = "GodfreyExhibitSanity.txt"
+PERFORMER_LABELS = ("BP_Godfrey_Performer", "BP_Kristofer")  # Phase 6+: prefer shell label
 REQUIRED_LOADED = (
-    "BP_Kristofer",
     "Exhibit_Floor",
     "Exhibit_Fill_Key",
     "Exhibit_Fill_Rim",
@@ -27,7 +27,8 @@ REQUIRED_LOADED = (
 )
 STAGE_REQUIRED_LOADED: tuple[str, ...] = ()  # Phase 4 baseline — user adds backdrop via editor UI
 STAGE_PACKAGE_LABELS: dict[str, tuple[str, bytes]] = {}
-FORBIDDEN_ORPHAN_WP_PREFIXES = ("0/", "3/", "7/", "9/")
+# Historic failed headless spawns only — 9/ and A/ are legitimate after Phase 5 stage actors
+FORBIDDEN_ORPHAN_WP_PREFIXES = ("0/", "3/", "7/")
 _lines: list[str] = []
 
 
@@ -66,36 +67,47 @@ def check_orphan_wp_packages() -> bool:
     if os.path.isdir(root):
         for entry in os.listdir(root):
             rel = f"{entry}/"
-            if rel in FORBIDDEN_ORPHAN_WP_PREFIXES or entry in ("0", "3", "7", "9"):
+            if rel in FORBIDDEN_ORPHAN_WP_PREFIXES or entry in ("0", "3", "7"):
                 orphans.append(entry)
     if orphans:
         fail(f"Orphan WP cell folders present (Phase 5 split): {', '.join(sorted(orphans))}")
         return False
-    pass_msg("No orphan WP cell folders (0/3/7/9)")
+    pass_msg("No orphan WP cell folders (0/3/7)")
     return True
 
 
 def check_required_actors_loaded() -> bool:
     loaded_labels = {a.get_actor_label() for a in actors().get_all_level_actors()}
     missing = [label for label in REQUIRED_LOADED if label not in loaded_labels]
+    performer_hits = [label for label in PERFORMER_LABELS if label in loaded_labels]
+    if len(performer_hits) == 0:
+        missing.append(f"one of ({', '.join(PERFORMER_LABELS)})")
+    elif len(performer_hits) > 1:
+        fail(f"Multiple performer actors loaded: {', '.join(performer_hits)}")
+        return False
     if missing:
         fail(f"Required actors not loaded: {', '.join(missing)}")
         log(f"Loaded actor labels ({len(loaded_labels)}): {', '.join(sorted(loaded_labels))}")
         return False
-    pass_msg(f"All {len(REQUIRED_LOADED)} required exhibit actors loaded")
+    pass_msg(
+        f"All {len(REQUIRED_LOADED)} exhibit actors + performer ({performer_hits[0]}) loaded"
+    )
     return True
 
 
-def check_kristofer_not_at_origin() -> bool:
+def check_performer_placement() -> bool:
     for actor in actors().get_all_level_actors():
-        if actor.get_actor_label() == "BP_Kristofer":
-            loc = actor.get_actor_location()
-            if abs(loc.x) < 1.0 and abs(loc.y) < 1.0 and abs(loc.z) < 1.0:
-                fail(f"BP_Kristofer at world origin {loc} — likely broken placement")
-                return False
-            log(f"BP_Kristofer at ({loc.x:.1f}, {loc.y:.1f}, {loc.z:.1f})")
-            pass_msg("BP_Kristofer has exhibit placement")
-            return True
+        label = actor.get_actor_label()
+        if label not in PERFORMER_LABELS:
+            continue
+        loc = actor.get_actor_location()
+        if abs(loc.x) < 1.0 and abs(loc.y) < 1.0 and abs(loc.z) < 1.0:
+            fail(f"{label} at world origin {loc} — likely broken placement")
+            return False
+        log(f"{label} at ({loc.x:.1f}, {loc.y:.1f}, {loc.z:.1f})")
+        pass_msg(f"{label} has exhibit placement")
+        return True
+    fail(f"No performer actor ({' or '.join(PERFORMER_LABELS)}) in level")
     return False
 
 
@@ -212,7 +224,7 @@ def main() -> None:
     ok = check_stage_actors_loaded() and ok
     ok = check_stage_packages_on_disk() and ok
     ok = check_no_duplicate_loaded_labels() and ok
-    ok = check_kristofer_not_at_origin() and ok
+    ok = check_performer_placement() and ok
     write_report(ok)
     if not ok:
         raise RuntimeError(

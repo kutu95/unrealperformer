@@ -68,6 +68,8 @@ Optional audit:
 | `save_stage_backdrop_transform.py` | After user places backdrop in UI | **Editor only** |
 | `restore_stage_backdrop.py` | Re-apply saved transform | **Editor only** |
 | `brighten_stage_backdrop.py` | Material + fill light | **Editor only** |
+| `provision_phase6_godfrey_performer_asset.py` | Phase 6 step 1a — duplicate shell BP | Yes (asset only) |
+| `setup_phase6_godfrey_performer_shell.py` | Phase 6 step 1 — swap performer in level | **Editor only** |
 | ~~`provision_stage_backdrop.py`~~ | **Deprecated** — caused WP cell splits | **No** |
 
 ### 5. Source control (OFPA)

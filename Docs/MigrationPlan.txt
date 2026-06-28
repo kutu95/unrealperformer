@@ -88,12 +88,21 @@ Tagged: phase5-exhibit-stage-stable (pending user tag after push)
 PHASE 6 — Exhibition wiring for Kristofer (one component at a time)
 ================================================================================
 Only after Phase 0–5 pass. Add in order, zoom-test after each:
-  1. Godfrey performer BP shell around Kristofer (meshes only, no bridge)
+  1. Godfrey performer BP shell around Kristofer (meshes only, no bridge)  [SCRIPTS READY]
   2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)
   3. Body anim instance
   4. ACE audio curve source
   5. Speech / performance state
   6. World Partition + exhibit placement
+
+Step 1 scripts (2026-06-28):
+  - provision_phase6_godfrey_performer_asset.py — headless: duplicate BP_Kristofer ->
+      /Game/MetaHumans/Godfrey/BP_Godfrey_Performer
+  - setup_phase6_godfrey_performer_shell.py — editor only: swap level actor to shell
+  - Config/PerformerCharacterProfile_Kristofer.json — mesh profile metadata for future swaps
+  - verify_godfrey_exhibit.py accepts BP_Godfrey_Performer or BP_Kristofer
+
+PASS GATE (step 1): Run setup script in editor, verify headless PASS, zoom shirt 30+ s.
 
 Stop at first step that breaks zoom.
 

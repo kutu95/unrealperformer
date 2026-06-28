@@ -45,7 +45,14 @@ def audit_umap_strings() -> None:
     with open(umap, "rb") as handle:
         data = handle.read()
     text = data.decode("latin-1", errors="ignore")
-    for needle in ("Exhibit_Floor", "Stage_Backdrop", "BP_Kristofer", "JK8XG654", "4EDBL63"):
+    for needle in (
+        "Exhibit_Floor",
+        "Stage_Backdrop",
+        "BP_Godfrey_Performer",
+        "BP_Kristofer",
+        "JK8XG654",
+        "4EDBL63",
+    ):
         count = text.count(needle)
         if count:
             log(f"Godfrey_World.umap contains '{needle}' x{count}")
@@ -81,6 +88,7 @@ def main() -> None:
 
 def audit_expected_missing() -> None:
     expected = (
+        "BP_Godfrey_Performer",
         "BP_Kristofer",
         "Exhibit_Floor",
         "Stage_Backdrop",

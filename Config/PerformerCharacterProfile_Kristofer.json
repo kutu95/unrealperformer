@@ -1,0 +1,10 @@
+{
+  "profile_name": "Kristofer",
+  "note": "Character appearance bundle for BP_Godfrey_Performer. Swap profiles in Phase 6+ without redoing exhibition wiring.",
+  "donor_blueprint": "/Game/MetaHumans/Kristofer/BP_Kristofer",
+  "performer_shell": "/Game/MetaHumans/Godfrey/BP_Godfrey_Performer",
+  "mesh_labels": ["Body", "Face", "Torso", "Legs", "Feet"],
+  "face_anim_bp": "/Game/MetaHumans/Common/Face/Face_AnimBP",
+  "body_mesh": "/Game/MetaHumans/Kristofer/Body/m_med_nrw_body",
+  "exhibition_wiring": "none — Phase 6 step 1 (meshes only)"
+}
