@@ -93,7 +93,7 @@ Only after Phase 0–5 pass. Add in order, zoom-test after each:
   3. Body anim instance  [PASSED 2026-06-28]
   4. ACE audio curve source  [PASSED 2026-06-28]
   5. Speech / performance state  [PASSED 2026-06-28]
-  6. World Partition + exhibit placement  [IN PROGRESS — finalize script]
+  6. World Partition + exhibit placement  [PASSED 2026-06-28]
 
 Step 1 scripts (2026-06-28):
   - provision_phase6_godfrey_performer_asset.py — headless: duplicate BP_Kristofer ->
@@ -138,10 +138,18 @@ PASS GATE (step 5): zoom shirt 30+ s with idle performance state bus only.  PASS
 Step 6 (2026-06-28):
   - setup_phase6_step6_exhibit_finalize.py — confirm BP stack + Godfrey_World placement + verify
   - EDITOR ONLY for performer swap/save (Tools > Execute Python Script; wp.Editor.LoadAllCells first)
-  - Headless: BP audit + read-only verify only
-  - Level currently has BP_Kristofer — editor run swaps to BP_Godfrey_Performer
+  - Headless: BP audit + read-only verify only — NEVER spawn/destroy actors via UnrealEditor-Cmd
+  - INCIDENT 2026-06-28: automated Cmd spawn (destroy Kristofer + spawn Godfrey) crashed editor on
+    quit in HairStrandsCore (groom bindings). Script failed before save_dirty_packages — tracked WP
+    uassets unchanged in git. Empty orphan cell folder 0/ may appear; delete if empty.
+  - INCIDENT 2026-06-28: automated Cmd spawn crashed on quit — do NOT repeat. Editor run OK.
+  - Editor run: swapped BP_Kristofer -> BP_Godfrey_Performer at (540,0,10), verify PASS, saved
 
-PASS GATE (step 6): verify_godfrey_exhibit.py PASS + zoom shirt 30+ s (full Phase 6 stack).
+PASS GATE (step 6): verify_godfrey_exhibit.py PASS + zoom shirt 30+ s (full Phase 6 stack).  PASSED.
+Tagged: phase6-exhibit-wiring-stable (pending push)
+
+PHASE 6 COMPLETE — full inert exhibition stack on Godfrey_World without shirt explosion at zoom.
+Next phase (if any): activate bridge/ACE/speech one flag at a time — only after explicit plan update.
 
 Stop at first step that breaks zoom.
 DO NOT USE AS ROLLBACK / DONOR

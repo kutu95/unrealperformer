@@ -1,5 +1,8 @@
 """Phase 6 step 6 — World Partition + exhibit placement finalize.
 
+WARNING: Never run performer destroy/spawn via UnrealEditor-Cmd. A 2026-06-28 Cmd attempt
+destroyed BP_Kristofer and crashed on quit in HairStrandsCore (MetaHuman groom bindings).
+
 Confirms full inert performer stack (steps 2–5), BP_Godfrey_Performer on Godfrey_World,
 GM_Godfrey_Exhibit, and exhibit sanity checks. Level swap/save is EDITOR ONLY.
 
