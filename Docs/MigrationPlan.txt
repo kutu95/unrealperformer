@@ -89,8 +89,8 @@ PHASE 6 — Exhibition wiring for Kristofer (one component at a time)
 ================================================================================
 Only after Phase 0–5 pass. Add in order, zoom-test after each:
   1. Godfrey performer BP shell around Kristofer (meshes only, no bridge)  [PASSED 2026-06-28]
-  2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)  [C++ + SCRIPT READY]
-  3. Body anim instance
+  2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)  [PASSED 2026-06-28]
+  3. Body anim instance  [SCRIPT READY]
   4. ACE audio curve source
   5. Speech / performance state
   6. World Partition + exhibit placement
@@ -111,9 +111,15 @@ Step 2 (2026-06-28):
   - setup_phase6_step2_animation_bridge.py — add bridge to BP_Godfrey_Performer, bAutoActivate=false
   - Rebuild UnrealPerformerEditor, restart editor, run script, zoom-test 30+ s
 
-PASS GATE (step 2): verify PASS + zoom shirt 30+ s with inert bridge on performer.
+PASS GATE (step 2): verify PASS + zoom shirt 30+ s with inert bridge on performer.  PASSED.
 
-================================================================================
+Step 3 (2026-06-28):
+  - setup_phase6_step3_body_anim_instance.py — Body AnimClass = GodfreyBodyAnimInstance
+  - Face stays stock Face_AnimBP; bridge remains bAutoActivate=false
+
+PASS GATE (step 3): zoom shirt 30+ s with GodfreyBodyAnimInstance on Body.
+
+Stop at first step that breaks zoom.
 DO NOT USE AS ROLLBACK / DONOR
 ================================================================================
 - BP_Gavin.uasset (reference hash only)

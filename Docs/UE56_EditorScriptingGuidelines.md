@@ -71,6 +71,7 @@ Optional audit:
 | `provision_phase6_godfrey_performer_asset.py` | Phase 6 step 1a — duplicate shell BP | Yes (asset only) |
 | `setup_phase6_godfrey_performer_shell.py` | Phase 6 step 1 — swap performer in level | **Editor only** |
 | `setup_phase6_step2_animation_bridge.py` | Phase 6 step 2 — add inert animation bridge | Yes (BP asset edit) |
+| `setup_phase6_step3_body_anim_instance.py` | Phase 6 step 3 — GodfreyBodyAnimInstance on Body | Yes (BP asset edit) |
 | ~~`provision_stage_backdrop.py`~~ | **Deprecated** — caused WP cell splits | **No** |
 
 ### 5. Source control (OFPA)

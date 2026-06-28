@@ -6,6 +6,9 @@ import unreal
 GODFREY_PERFORMER_BP = "/Game/MetaHumans/Godfrey/BP_Godfrey_Performer"
 BRIDGE_CLASS = "/Script/UnrealPerformer.GodfreyPerformerAnimationBridgeComponent"
 BRIDGE_LABEL = "GodfreyPerformerAnimationBridge"
+BODY_ANIM_CLASS_PATH = "/Script/UnrealPerformer.GodfreyBodyAnimInstance"
+KRISTOFER_DONOR_BP = "/Game/MetaHumans/Kristofer/BP_Kristofer"
+FACE_ANIM_TOKEN = "Face_AnimBP"
 
 FORBIDDEN_STEP2_COMPONENTS = (
     "GodfreyPerformanceStateComponent",
@@ -202,4 +205,62 @@ def audit_step2_blueprint(bp) -> dict[str, object]:
         "bridge_present": True,
         "bAutoActivate": auto_activate,
         "forbidden_absent": True,
+    }
+
+
+def _anim_class_name(component) -> str:
+    if not component:
+        return "None"
+    try:
+        anim = component.get_editor_property("anim_class")
+    except Exception:
+        try:
+            anim = component.get_editor_property("AnimClass")
+        except Exception:
+            return "(unreadable)"
+    if not anim:
+        return "None"
+    try:
+        return anim.get_name()
+    except Exception:
+        return str(anim)
+
+
+def assign_body_anim_instance(bp) -> dict[str, str]:
+    body_anim = unreal.load_class(None, BODY_ANIM_CLASS_PATH)
+    if not body_anim:
+        raise RuntimeError(f"Could not load {BODY_ANIM_CLASS_PATH}")
+
+    body_comp, _ = find_component(bp, "Body")
+    if not body_comp:
+        raise RuntimeError("Body skeletal mesh component not found on performer BP")
+
+    changes: dict[str, str] = {"Body.anim_before": _anim_class_name(body_comp)}
+    prop = set_prop(body_comp, ["anim_class", "AnimClass"], body_anim)
+    if not prop:
+        raise RuntimeError("Failed to set Body AnimClass")
+    changes["Body.anim_class"] = body_anim.get_name()
+    return changes
+
+
+def audit_step3_blueprint(bp) -> dict[str, object]:
+    audit_step2_blueprint(bp)
+
+    body_comp, _ = find_component(bp, "Body")
+    face_comp, _ = find_component(bp, "Face")
+    body_anim = _anim_class_name(body_comp)
+    face_anim = _anim_class_name(face_comp)
+
+    if "GodfreyBodyAnimInstance" not in body_anim:
+        raise RuntimeError(f"Body AnimClass must be GodfreyBodyAnimInstance (got {body_anim})")
+    if FACE_ANIM_TOKEN not in face_anim and face_anim != "None":
+        log_face = face_anim
+        # Kristofer Face_AnimBP may appear as Face_AnimBP_C
+        if "Face" not in face_anim:
+            raise RuntimeError(f"Face AnimClass should remain stock MetaHuman Face_AnimBP (got {log_face})")
+
+    return {
+        "body_anim": body_anim,
+        "face_anim": face_anim,
+        "bridge_inert": True,
     }
