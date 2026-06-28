@@ -9,11 +9,179 @@
 #include "ACEAudioCurveSourceComponent.h"
 #include "UnrealPerformerGodfreySettings.h"
 
+#include "AudioDevice.h"
+#include "AudioDeviceManager.h"
+#include "AudioMixerDevice.h"
+#include "Components/AudioComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/App.h"
+#if WITH_EDITOR
+#include "Settings/LevelEditorPlaySettings.h"
+#endif
+#include "Sound/SoundGroups.h"
+#include "Sound/SoundWaveProcedural.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogGodfreyPcmStream, Log, All);
 
 namespace
 {
 static int32 GGodfreyUtteranceCounter = 0;
+
+/** Bumped when parallel-audible startup logic changes — grep logs for this string to confirm binary matches source. */
+static constexpr const TCHAR* GGodfreyParallelAudibleLogicStamp = TEXT("godfrey-parallel-audible-2026-06-28-v9");
+
+/** PrimaryVolume = TransientPrimaryVolume * FApp::GetVolumeMultiplier(). AppMult=0 when the editor is unfocused (UnfocusedVolumeMultiplier default 0). */
+static bool TryRestorePieAudibilityIfSilent(UWorld* World, const TCHAR* Context)
+{
+	if (!World || !World->IsPlayInEditor())
+	{
+		return false;
+	}
+
+	const FAudioDeviceHandle DeviceHandle = World->GetAudioDevice();
+	FAudioDevice* AudioDevice = DeviceHandle.GetAudioDevice();
+	if (!AudioDevice)
+	{
+		return false;
+	}
+
+	const float PrimaryVol = AudioDevice->GetPrimaryVolume();
+	const float TransientVol = AudioDevice->GetTransientPrimaryVolume();
+	const float AppMult = FApp::GetVolumeMultiplier();
+	const bool bDeviceMuted = AudioDevice->IsAudioDeviceMuted();
+
+	if (PrimaryVol > KINDA_SMALL_NUMBER && !bDeviceMuted)
+	{
+		return false;
+	}
+
+	bool bRestored = false;
+
+	if (AppMult <= KINDA_SMALL_NUMBER)
+	{
+		UE_LOG(LogGodfreyPcmStream, Error,
+			TEXT("[Godfrey audible] FApp::GetVolumeMultiplier() is 0 at '%s' (editor unfocused or UnfocusedVolumeMultiplier=0). PrimaryVol=%.3f TransientVol=%.3f. "
+			     "Restoring app volume to 1 for Godfrey playback — click the PIE viewport so it has focus, or set [Audio] UnfocusedVolumeMultiplier=1 in DefaultEngine.ini."),
+			Context,
+			PrimaryVol,
+			TransientVol);
+		FApp::SetVolumeMultiplier(1.f);
+		bRestored = true;
+	}
+
+	if (TransientVol <= KINDA_SMALL_NUMBER)
+	{
+		AudioDevice->SetTransientPrimaryVolume(1.f);
+		bRestored = true;
+	}
+
+	if (!bRestored)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("[Godfrey audible] PIE output still silent at '%s' (PrimaryVol=%.3f TransientVol=%.3f AppMult=%.3f DeviceMuted=%d)."),
+			Context,
+			PrimaryVol,
+			TransientVol,
+			AppMult,
+			bDeviceMuted ? 1 : 0);
+	}
+
+	return bRestored;
+}
+
+static void GodfreyAudibleSelfTest()
+{
+	UWorld* World = nullptr;
+	if (GEngine)
+	{
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			if (UWorld* Candidate = Context.World())
+			{
+				if (Candidate->WorldType == EWorldType::PIE || Candidate->WorldType == EWorldType::Game)
+				{
+					World = Candidate;
+					break;
+				}
+			}
+		}
+	}
+
+	if (!World)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning, TEXT("godfrey.AudibleSelfTest: no PIE/game world — start PIE first."));
+		return;
+	}
+
+	TryRestorePieAudibilityIfSilent(World, TEXT("AudibleSelfTest"));
+
+	constexpr int32 SampleRate = 48000;
+	constexpr float DurationSec = 1.5f;
+	constexpr float FrequencyHz = 440.f;
+	const int32 NumFrames = FMath::RoundToInt(SampleRate * DurationSec);
+	TArray<uint8> Pcm;
+	Pcm.SetNumUninitialized(NumFrames * sizeof(int16));
+	int16* Samples = reinterpret_cast<int16*>(Pcm.GetData());
+	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
+	{
+		const float T = static_cast<float>(FrameIndex) / static_cast<float>(SampleRate);
+		Samples[FrameIndex] = static_cast<int16>(32767.f * 0.35f * FMath::Sin(2.f * UE_PI * FrequencyHz * T));
+	}
+
+	USoundWaveProcedural* Sound = NewObject<USoundWaveProcedural>(World);
+	Sound->SetSampleRate(SampleRate);
+	Sound->NumChannels = 1;
+	Sound->Duration = DurationSec;
+	Sound->TotalSamples = NumFrames;
+	Sound->RawPCMDataSize = Pcm.Num();
+	Sound->bLooping = false;
+	Sound->SoundGroup = SOUNDGROUP_Default;
+	Sound->VirtualizationMode = EVirtualizationMode::PlayWhenSilent;
+	Sound->QueueAudio(Pcm.GetData(), Pcm.Num());
+
+	FVector PlayLocation = FVector::ZeroVector;
+	if (APlayerController* PC = World->GetFirstPlayerController())
+	{
+		FRotator PlayRotation;
+		PC->GetPlayerViewPoint(PlayLocation, PlayRotation);
+	}
+
+	// One procedural wave must not feed two AudioComponents — that races the PCM queue and can crash AudioMixer.
+	if (UAudioComponent* AC = UGameplayStatics::SpawnSoundAtLocation(
+			World,
+			Sound,
+			PlayLocation,
+			FRotator::ZeroRotator,
+			1.f,
+			1.f,
+			0.f,
+			nullptr,
+			nullptr,
+			true))
+	{
+		AC->bIsUISound = false;
+		AC->bAllowSpatialization = false;
+		AC->SetVolumeMultiplier(1.f);
+		UE_LOG(LogGodfreyPcmStream, Log,
+			TEXT("godfrey.AudibleSelfTest: SpawnSoundAtLocation AC=%p IsPlaying=%d Loc=%s (~%.1fs, %s)."),
+			AC,
+			AC->IsPlaying() ? 1 : 0,
+			*PlayLocation.ToString(),
+			DurationSec,
+			GGodfreyParallelAudibleLogicStamp);
+	}
+	else
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning, TEXT("godfrey.AudibleSelfTest: SpawnSoundAtLocation failed."));
+	}
+}
+
+static FAutoConsoleCommand CCmdGodfreyAudibleSelfTest(
+	TEXT("godfrey.AudibleSelfTest"),
+	TEXT("PIE: play 440Hz test tone via SpawnSoundAtLocation (single procedural player). If you hear nothing, the issue is editor/OS audio routing, not Godfrey PCM."),
+	FConsoleCommandDelegate::CreateStatic(&GodfreyAudibleSelfTest));
 
 /** One active ingest/playback session per character; superseded sessions must unbind ACE delegates. */
 static TMap<TWeakObjectPtr<AActor>, TWeakObjectPtr<UGodfreyPcmStreamSession>> GActiveGodfreyAceSessionByCharacter;
@@ -29,6 +197,41 @@ static int32 ComputeMaxPcmBytesPerAceSubChunk(int32 SampleRate, int32 NumChannel
 	const int32 FramesPerSubChunk = FMath::Max(1, FMath::RoundToInt(static_cast<float>(SampleRate) * (ClampedMs / 1000.f)));
 	const int32 UnalignedBytes = FramesPerSubChunk * FrameSize;
 	return FMath::Max(FrameSize, (UnalignedBytes / FrameSize) * FrameSize);
+}
+
+static void ComputePcm16PeakRms(const TArray<uint8>& PcmBytes, int32 NumChannels, int16& OutPeak, float& OutRms)
+{
+	OutPeak = 0;
+	OutRms = 0.f;
+	const int32 FrameSize = NumChannels * static_cast<int32>(sizeof(int16));
+	if (PcmBytes.Num() < FrameSize || (PcmBytes.Num() % FrameSize) != 0)
+	{
+		return;
+	}
+
+	const int32 NumSamples = PcmBytes.Num() / static_cast<int32>(sizeof(int16));
+	const int16* Samples = reinterpret_cast<const int16*>(PcmBytes.GetData());
+	int64 SumSquares = 0;
+	for (int32 SampleIndex = 0; SampleIndex < NumSamples; ++SampleIndex)
+	{
+		const int16 Sample = Samples[SampleIndex];
+		OutPeak = static_cast<int16>(FMath::Max(static_cast<int32>(OutPeak), FMath::Abs(static_cast<int32>(Sample))));
+		SumSquares += static_cast<int64>(Sample) * static_cast<int64>(Sample);
+	}
+	OutRms = (NumSamples > 0) ? FMath::Sqrt(static_cast<float>(SumSquares) / static_cast<float>(NumSamples)) : 0.f;
+}
+
+static const TCHAR* AudioComponentPlayStateToString(const EAudioComponentPlayState PlayState)
+{
+	switch (PlayState)
+	{
+	case EAudioComponentPlayState::Playing: return TEXT("Playing");
+	case EAudioComponentPlayState::Stopped: return TEXT("Stopped");
+	case EAudioComponentPlayState::Paused: return TEXT("Paused");
+	case EAudioComponentPlayState::FadingIn: return TEXT("FadingIn");
+	case EAudioComponentPlayState::FadingOut: return TEXT("FadingOut");
+	default: return TEXT("Unknown");
+	}
 }
 } // namespace
 
@@ -48,6 +251,9 @@ void UGodfreyPcmStreamSession::NotifyFirstHttpBodyBytesPlatformSeconds(double Pl
 void UGodfreyPcmStreamSession::BeginDestroy()
 {
 	CancelDeferredAceUnbind();
+	CancelAudibleDiagnosticsTimer();
+	UnbindParallelAudibleUnderflowDelegate();
+	StopParallelAudiblePlayback(true);
 	UnregisterActiveAceSessionForCharacter();
 	UnbindAceDelegates();
 	Super::BeginDestroy();
@@ -74,6 +280,7 @@ void UGodfreyPcmStreamSession::RegisterAsActiveAceSessionForCharacter()
 					Prior->UtteranceOrdinal,
 					*Character->GetName());
 				Prior->CancelDeferredAceUnbind();
+				Prior->StopParallelAudiblePlayback(true);
 				Prior->UnbindAceDelegates();
 			}
 		}
@@ -373,6 +580,863 @@ void UGodfreyPcmStreamSession::RestoreGodfreyAcePlaybackPrimingIfApplied()
 	bGodfreyAcePrimingApplied = false;
 }
 
+void UGodfreyPcmStreamSession::LogAudiblePlaybackDiagnostics(const TCHAR* ContextLabel) const
+{
+	if (!GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyLogAudiblePlaybackDiagnostics)
+	{
+		return;
+	}
+
+	AActor* Character = TargetCharacter.Get();
+	UWorld* World = Character ? Character->GetWorld() : nullptr;
+	const Audio::FDeviceId DeviceId = World ? World->GetAudioDevice().GetDeviceID() : Audio::FDeviceId(INDEX_NONE);
+
+	int32 MixerSampleRate = 0;
+	int32 MixerOutputChannels = 0;
+	if (World)
+	{
+		if (const Audio::FMixerDevice* Mixer = FAudioDeviceManager::GetAudioMixerDeviceFromWorldContext(World))
+		{
+			MixerSampleRate = Mixer->GetDeviceSampleRate();
+			MixerOutputChannels = Mixer->GetDeviceOutputChannels();
+		}
+	}
+
+	UACEAudioCurveSourceComponent* AceComp = Character ? Character->FindComponentByClass<UACEAudioCurveSourceComponent>() : nullptr;
+	const float AceVolume = AceComp ? AceComp->Volume : -1.f;
+	const bool bAceProceduralPlaying = AceComp ? AceComp->IsProceduralAudioPlaying() : false;
+	const float AcePlaybackWallSec = AceComp ? AceComp->GetProceduralPlaybackWallClockSeconds() : -1.f;
+	const float AceMaxCurveTs = AceComp ? AceComp->GetMaxReceivedCurveTimestamp() : -1.f;
+
+	const UAudioComponent* ParallelAC = ParallelAudibleAudioComponent;
+	const bool bParallelValid = IsValid(ParallelAC);
+	const bool bParallelIsPlaying = bParallelValid && ParallelAC->IsPlaying();
+	const EAudioComponentPlayState ParallelPlayState = bParallelValid ? ParallelAC->GetPlayState() : EAudioComponentPlayState::Stopped;
+	const float ParallelVolMult = bParallelValid ? ParallelAC->VolumeMultiplier : -1.f;
+	const bool bParallelUISound = bParallelValid && ParallelAC->bIsUISound;
+	const bool bParallelSpatial = bParallelValid && ParallelAC->bAllowSpatialization;
+	const bool bParallelAutoDestroy = bParallelValid && ParallelAC->bAutoDestroy;
+	const USoundBase* ParallelSound = ParallelAudibleWave;
+
+	int32 ProceduralAvailBytes = 0;
+	int32 ProceduralWaveSampleRate = 0;
+	int32 ProceduralWaveChannels = 0;
+	float ProceduralWaveDuration = -1.f;
+	if (ParallelAudibleWave)
+	{
+		ProceduralAvailBytes = ParallelAudibleWave->GetAvailableAudioByteCount();
+		ProceduralWaveSampleRate = ParallelAudibleWave->GetSampleRateForCurrentPlatform();
+		ProceduralWaveChannels = ParallelAudibleWave->NumChannels;
+		ProceduralWaveDuration = ParallelAudibleWave->Duration;
+	}
+
+	const int32 FrameSize = StreamNumChannels * static_cast<int32>(sizeof(int16));
+	const int32 EffectiveParallelSampleRate = GetParallelAudibleEffectiveSampleRate();
+	const float ParallelQueuedAudioSec = (FrameSize > 0 && EffectiveParallelSampleRate > 0)
+		? static_cast<float>(ParallelAudibleQueuedBytes) / (static_cast<float>(EffectiveParallelSampleRate) * static_cast<float>(FrameSize))
+		: 0.f;
+	const float ProceduralAvailAudioSec = (FrameSize > 0 && ProceduralWaveSampleRate > 0)
+		? static_cast<float>(ProceduralAvailBytes) / (static_cast<float>(ProceduralWaveSampleRate) * static_cast<float>(FrameSize))
+		: 0.f;
+
+	bool bAudioDeviceMuted = false;
+	float PrimaryVolume = -1.f;
+	float TransientPrimaryVolume = -1.f;
+	const float AppVolumeMultiplier = FApp::GetVolumeMultiplier();
+#if WITH_EDITOR
+	const bool bEnableGameSound = GetDefault<ULevelEditorPlaySettings>()->EnableGameSound;
+#else
+	const bool bEnableGameSound = true;
+#endif
+	if (World)
+	{
+		if (const FAudioDeviceHandle DeviceHandle = World->GetAudioDevice())
+		{
+			if (FAudioDevice* AudioDevice = DeviceHandle.GetAudioDevice())
+			{
+				bAudioDeviceMuted = AudioDevice->IsAudioDeviceMuted();
+				PrimaryVolume = AudioDevice->GetPrimaryVolume();
+				TransientPrimaryVolume = AudioDevice->GetTransientPrimaryVolume();
+			}
+		}
+	}
+
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("[Godfrey audible diag] Utterance=%d | %s | PIE=%d Finished=%d"),
+		UtteranceOrdinal,
+		ContextLabel,
+		(World && World->IsPlayInEditor()) ? 1 : 0,
+		bFinished ? 1 : 0);
+
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("[Godfrey audible diag] %s | Mixer DeviceId=%u MixerSR=%d MixerOutCh=%d UpsampleToMixer=%d StreamSR=%d StreamCh=%d DeviceMuted=%d PrimaryVol=%.3f TransientVol=%.3f AppMult=%.3f EnableGameSound=%d"),
+		ContextLabel,
+		static_cast<uint32>(DeviceId),
+		MixerSampleRate,
+		MixerOutputChannels,
+		GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyUpsamplePcmToMixerRate ? 1 : 0,
+		StreamSampleRate,
+		StreamNumChannels,
+		bAudioDeviceMuted ? 1 : 0,
+		PrimaryVolume,
+		TransientPrimaryVolume,
+		AppVolumeMultiplier,
+		bEnableGameSound ? 1 : 0);
+
+	if (PrimaryVolume <= KINDA_SMALL_NUMBER && !bAudioDeviceMuted)
+	{
+		if (AppVolumeMultiplier <= KINDA_SMALL_NUMBER)
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("[Godfrey audible diag] %s | AppMult=0 (editor unfocused): click the PIE viewport or set UnfocusedVolumeMultiplier=1 in DefaultEngine.ini."),
+				ContextLabel);
+		}
+		else
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("[Godfrey audible diag] %s | PrimaryVol~0: check PIE viewport volume slider and Editor Preferences → Play → Enable Game Sound."),
+				ContextLabel);
+		}
+	}
+
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("[Godfrey audible diag] %s | ACE Volume=%.3f AceProceduralPlaying=%d AcePlaybackWallSec=%.3f AceMaxCurveTs=%.3f AceMutedForParallel=%d"),
+		ContextLabel,
+		AceVolume,
+		bAceProceduralPlaying ? 1 : 0,
+		AcePlaybackWallSec,
+		AceMaxCurveTs,
+		bAceVolumeMutedForParallelLipSync ? 1 : 0);
+
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("[Godfrey audible diag] %s | Parallel active=%d started=%d AC=%p IsPlaying=%d PlayState=%s VolMult=%.3f UISound=%d Spatial=%d AutoDestroy=%d Sound=%p"),
+		ContextLabel,
+		bParallelAudibleActive ? 1 : 0,
+		bParallelAudiblePlaybackStarted ? 1 : 0,
+		ParallelAC,
+		bParallelIsPlaying ? 1 : 0,
+		AudioComponentPlayStateToString(ParallelPlayState),
+		ParallelVolMult,
+		bParallelUISound ? 1 : 0,
+		bParallelSpatial ? 1 : 0,
+		bParallelAutoDestroy ? 1 : 0,
+		ParallelSound);
+
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("[Godfrey audible diag] %s | Procedural queuedBytes=%d (~%.2fs) availBytes=%d (~%.2fs) waveSR=%d waveCh=%d waveDur=%.2f queueCalls=%d underflows=%d"),
+		ContextLabel,
+		ParallelAudibleQueuedBytes,
+		ParallelQueuedAudioSec,
+		ProceduralAvailBytes,
+		ProceduralAvailAudioSec,
+		ProceduralWaveSampleRate,
+		ProceduralWaveChannels,
+		ProceduralWaveDuration,
+		ParallelAudibleQueueCallCount,
+		ParallelProceduralUnderflowCount);
+
+	if (ParallelAC && bParallelAudiblePlaybackStarted && !bParallelIsPlaying)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("[Godfrey audible diag] %s | Parallel path reports started but AudioComponent IsPlaying=0 (PlayState=%s)."),
+			ContextLabel,
+			AudioComponentPlayStateToString(ParallelPlayState));
+	}
+
+	if (bParallelAudibleActive && bParallelAudiblePlaybackStarted && ProceduralAvailBytes <= 0 && ParallelAudibleQueuedBytes > 0)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("[Godfrey audible diag] %s | Procedural FIFO drained (availBytes=0) while game-thread queuedBytes=%d — possible underflow/starvation."),
+			ContextLabel,
+			ParallelAudibleQueuedBytes);
+	}
+
+	if (RollingPcmBytes.Num() > 0)
+	{
+		int16 RollingPeak = 0;
+		float RollingRms = 0.f;
+		ComputePcm16PeakRms(RollingPcmBytes, StreamNumChannels, RollingPeak, RollingRms);
+		UE_LOG(LogGodfreyPcmStream, Log,
+			TEXT("[Godfrey audible diag] %s | RollingPcmBytes=%d streamPeak=%d streamRms=%.1f (source SR=%d before upsample)"),
+			ContextLabel,
+			RollingPcmBytes.Num(),
+			static_cast<int32>(RollingPeak),
+			RollingRms,
+			StreamSampleRate);
+		if (RollingPeak == 0)
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("[Godfrey audible diag] %s | Entire rolling PCM buffer is silent (peak=0) — check brain stream / ElevenLabs output."),
+				ContextLabel);
+		}
+	}
+}
+
+void UGodfreyPcmStreamSession::ScheduleAudibleDiagnosticsTimer(UWorld* World)
+{
+	if (!GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyLogAudiblePlaybackDiagnostics || !World)
+	{
+		return;
+	}
+
+	CancelAudibleDiagnosticsTimer();
+	AudibleDiagnosticsWorld = World;
+	AudibleDiagnosticsTickCount = 0;
+	World->GetTimerManager().SetTimer(
+		AudibleDiagnosticsTimerHandle,
+		FTimerDelegate::CreateUObject(this, &UGodfreyPcmStreamSession::AudibleDiagnosticsTimerTick),
+		2.0f,
+		true);
+}
+
+void UGodfreyPcmStreamSession::CancelAudibleDiagnosticsTimer()
+{
+	if (UWorld* World = AudibleDiagnosticsWorld.Get())
+	{
+		World->GetTimerManager().ClearTimer(AudibleDiagnosticsTimerHandle);
+	}
+	AudibleDiagnosticsWorld.Reset();
+	AudibleDiagnosticsTimerHandle.Invalidate();
+}
+
+void UGodfreyPcmStreamSession::AudibleDiagnosticsTimerTick()
+{
+	++AudibleDiagnosticsTickCount;
+	if (UWorld* World = AudibleDiagnosticsWorld.Get())
+	{
+		TryRestorePieAudibilityIfSilent(World, TEXT("periodic-tick"));
+	}
+	const FString Label = FString::Printf(TEXT("periodic-tick-%d"), AudibleDiagnosticsTickCount);
+	LogAudiblePlaybackDiagnostics(*Label);
+
+	if (bFinished || !bParallelAudiblePlaybackStarted)
+	{
+		CancelAudibleDiagnosticsTimer();
+	}
+}
+
+void UGodfreyPcmStreamSession::BindParallelAudibleUnderflowDelegate()
+{
+	if (!ParallelAudibleWave)
+	{
+		return;
+	}
+
+	ParallelAudibleWave->OnSoundWaveProceduralUnderflow.Unbind();
+	ParallelAudibleWave->OnSoundWaveProceduralUnderflow.BindUObject(this, &UGodfreyPcmStreamSession::HandleParallelProceduralUnderflow);
+}
+
+void UGodfreyPcmStreamSession::UnbindParallelAudibleUnderflowDelegate()
+{
+	if (ParallelAudibleWave)
+	{
+		ParallelAudibleWave->OnSoundWaveProceduralUnderflow.Unbind();
+	}
+}
+
+void UGodfreyPcmStreamSession::HandleParallelProceduralUnderflow(USoundWaveProcedural* Wave, int32 SamplesRequired)
+{
+	++ParallelProceduralUnderflowCount;
+	if (!GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyLogAudiblePlaybackDiagnostics)
+	{
+		return;
+	}
+
+	const int32 AvailBytes = Wave ? Wave->GetAvailableAudioByteCount() : 0;
+	const int32 FrameSize = StreamNumChannels * static_cast<int32>(sizeof(int16));
+	const int32 SamplesRequiredBytes = (FrameSize > 0) ? (SamplesRequired * FrameSize) : 0;
+	const bool bLikelyStarvation = AvailBytes < SamplesRequiredBytes;
+	if (bLikelyStarvation && ParallelProceduralUnderflowCount <= 10)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("[Godfrey audible diag] procedural underflow #%d | Utterance=%d SamplesRequired=%d availBytes=%d queuedBytes(game)=%d started=%d likelyStarvation=1"),
+			ParallelProceduralUnderflowCount,
+			UtteranceOrdinal,
+			SamplesRequired,
+			AvailBytes,
+			ParallelAudibleQueuedBytes,
+			bParallelAudiblePlaybackStarted ? 1 : 0);
+	}
+	else if (bLikelyStarvation && ParallelProceduralUnderflowCount == 11)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("[Godfrey audible diag] procedural underflow | Utterance=%d — suppressing further starvation warnings (count>10)."),
+			UtteranceOrdinal);
+	}
+	else
+	{
+		UE_LOG(LogGodfreyPcmStream, Verbose,
+			TEXT("[Godfrey audible diag] procedural underflow #%d | Utterance=%d SamplesRequired=%d availBytes=%d queuedBytes(game)=%d started=%d likelyStarvation=0"),
+			ParallelProceduralUnderflowCount,
+			UtteranceOrdinal,
+			SamplesRequired,
+			AvailBytes,
+			ParallelAudibleQueuedBytes,
+			bParallelAudiblePlaybackStarted ? 1 : 0);
+	}
+}
+
+void UGodfreyPcmStreamSession::PrepareFreshParallelAudibleWave(AActor* Character)
+{
+	UnbindParallelAudibleUnderflowDelegate();
+	ParallelAudibleWave = nullptr;
+
+	if (!Character)
+	{
+		return;
+	}
+
+	EnsureParallelAudibleWave(Character);
+}
+
+void UGodfreyPcmStreamSession::AbortParallelAudiblePlaybackForAceResync(bool bRestoreAceVolume)
+{
+	CancelAudibleDiagnosticsTimer();
+
+	if (ParallelAudibleAudioComponent)
+	{
+		ParallelAudibleAudioComponent->Stop();
+		ParallelAudibleAudioComponent->DestroyComponent();
+		ParallelAudibleAudioComponent = nullptr;
+	}
+
+	if (ParallelAudibleWave)
+	{
+		ParallelAudibleWave->ResetAudio();
+	}
+
+	ParallelAudibleQueuedBytes = 0;
+	bParallelAudiblePlaybackStarted = false;
+	ParallelAudibleQueueCallCount = 0;
+	ParallelProceduralUnderflowCount = 0;
+
+	if (bRestoreAceVolume && bSavedAceVolumeForParallelMute)
+	{
+		if (AActor* Character = TargetCharacter.Get())
+		{
+			if (UACEAudioCurveSourceComponent* AceComp = Character->FindComponentByClass<UACEAudioCurveSourceComponent>())
+			{
+				AceComp->Volume = SavedAceVolumeBeforeParallelMute;
+			}
+		}
+		bSavedAceVolumeForParallelMute = false;
+	}
+
+	bAceVolumeMutedForParallelLipSync = false;
+}
+
+void UGodfreyPcmStreamSession::EnsureParallelAudibleWave(AActor* Character)
+{
+	if (!Character || ParallelAudibleWave)
+	{
+		return;
+	}
+
+	// Match Test_Live_Audio WavUrlSoundLibrary: transient outer, native rate, finite duration set at queue time.
+	ParallelAudibleWave = NewObject<USoundWaveProcedural>(GetTransientPackage());
+	if (!ParallelAudibleWave)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning, TEXT("Godfrey utterance %d: failed to allocate parallel USoundWaveProcedural."), UtteranceOrdinal);
+		return;
+	}
+
+	ParallelAudibleWave->SetSampleRate(GetParallelAudibleEffectiveSampleRate());
+	ParallelAudibleWave->NumChannels = StreamNumChannels;
+	ParallelAudibleWave->Duration = 0.f;
+	ParallelAudibleWave->bLooping = false;
+	ParallelAudibleWave->Volume = 1.f;
+	ParallelAudibleWave->SoundGroup = SOUNDGROUP_Default;
+	ParallelAudibleWave->VirtualizationMode = EVirtualizationMode::PlayWhenSilent;
+	BindParallelAudibleUnderflowDelegate();
+}
+
+void UGodfreyPcmStreamSession::UpdateParallelAudibleWaveDuration()
+{
+	if (!ParallelAudibleWave || ParallelAudibleQueuedBytes <= 0)
+	{
+		return;
+	}
+
+	const int32 EffectiveSampleRate = GetParallelAudibleEffectiveSampleRate();
+	const int32 FrameSize = StreamNumChannels * static_cast<int32>(sizeof(int16));
+	if (EffectiveSampleRate <= 0 || FrameSize <= 0)
+	{
+		return;
+	}
+
+	const int32 NumFrames = ParallelAudibleQueuedBytes / FrameSize;
+	ParallelAudibleWave->Duration = static_cast<float>(NumFrames) / static_cast<float>(EffectiveSampleRate);
+	ParallelAudibleWave->TotalSamples = NumFrames * StreamNumChannels;
+	ParallelAudibleWave->RawPCMDataSize = ParallelAudibleQueuedBytes;
+	if (bFinished)
+	{
+		ParallelAudibleWave->bLooping = false;
+	}
+}
+
+void UGodfreyPcmStreamSession::MuteAceVolumeForParallelLipSyncOnly()
+{
+	if (bAceVolumeMutedForParallelLipSync)
+	{
+		return;
+	}
+
+	AActor* Character = TargetCharacter.Get();
+	if (!Character)
+	{
+		return;
+	}
+
+	UACEAudioCurveSourceComponent* AceComp = Character->FindComponentByClass<UACEAudioCurveSourceComponent>();
+	if (!AceComp)
+	{
+		return;
+	}
+
+	if (!bSavedAceVolumeForParallelMute)
+	{
+		SavedAceVolumeBeforeParallelMute = AceComp->Volume;
+		bSavedAceVolumeForParallelMute = true;
+	}
+
+	AceComp->Volume = 0.f;
+	bAceVolumeMutedForParallelLipSync = true;
+}
+
+void UGodfreyPcmStreamSession::QueueParallelAudiblePcm(const TArray<uint8>& PcmBytes)
+{
+	if (!bParallelAudibleActive || !ParallelAudibleWave || PcmBytes.Num() <= 0)
+	{
+		return;
+	}
+
+	TArray<uint8> AudiblePcm;
+	int32 AudibleSampleRate = StreamSampleRate;
+	UpsamplePcm16MonoForAudiblePlayback(PcmBytes, StreamSampleRate, AudiblePcm, AudibleSampleRate);
+	// Sample rate is fixed in EnsureParallelAudibleWave — do not call SetSampleRate after Play(); that resets procedural playback.
+
+	ParallelAudibleWave->QueueAudio(AudiblePcm.GetData(), AudiblePcm.Num());
+	ParallelAudibleQueuedBytes += AudiblePcm.Num();
+	if (bFinished)
+	{
+		UpdateParallelAudibleWaveDuration();
+	}
+	else if (ParallelAudibleWave)
+	{
+		ParallelAudibleWave->Duration = INDEFINITELY_LOOPING_DURATION;
+	}
+	++ParallelAudibleQueueCallCount;
+
+	if (!bLoggedFirstParallelQueue)
+	{
+		bLoggedFirstParallelQueue = true;
+		int16 Peak = 0;
+		float Rms = 0.f;
+		ComputePcm16PeakRms(AudiblePcm, StreamNumChannels, Peak, Rms);
+		UE_LOG(LogGodfreyPcmStream, Log,
+			TEXT("Godfrey utterance %d: first parallel PCM queue. ChunkBytes=%d AudibleBytes=%d AudibleSR=%d Peak=%d Rms=%.1f TotalQueued=%d (brain may send ~80ms lead silence first)"),
+			UtteranceOrdinal,
+			PcmBytes.Num(),
+			AudiblePcm.Num(),
+			AudibleSampleRate,
+			static_cast<int32>(Peak),
+			Rms,
+			ParallelAudibleQueuedBytes);
+		LogAudiblePlaybackDiagnostics(TEXT("first-parallel-queue"));
+	}
+	else if (!bLoggedFirstNonSilentParallelQueue)
+	{
+		int16 Peak = 0;
+		float Rms = 0.f;
+		ComputePcm16PeakRms(AudiblePcm, StreamNumChannels, Peak, Rms);
+		if (Peak > 0)
+		{
+			bLoggedFirstNonSilentParallelQueue = true;
+			UE_LOG(LogGodfreyPcmStream, Log,
+				TEXT("Godfrey utterance %d: first non-silent parallel PCM queue at call #%d. ChunkBytes=%d Peak=%d Rms=%.1f TotalQueued=%d"),
+				UtteranceOrdinal,
+				ParallelAudibleQueueCallCount,
+				PcmBytes.Num(),
+				static_cast<int32>(Peak),
+				Rms,
+				ParallelAudibleQueuedBytes);
+		}
+	}
+	else if (GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyLogAudiblePlaybackDiagnostics
+		&& (ParallelAudibleQueueCallCount % 100) == 0)
+	{
+		UE_LOG(LogGodfreyPcmStream, Log,
+			TEXT("Godfrey utterance %d: parallel PCM queue milestone #%d TotalQueuedBytes=%d availProcedural=%d"),
+			UtteranceOrdinal,
+			ParallelAudibleQueueCallCount,
+			ParallelAudibleQueuedBytes,
+			ParallelAudibleWave->GetAvailableAudioByteCount());
+	}
+}
+
+void UGodfreyPcmStreamSession::TryStartParallelAudiblePlayback(bool bIgnoreBufferThreshold, bool bAceSyncStart)
+{
+	if (!bParallelAudibleActive)
+	{
+		return;
+	}
+
+	if (bParallelAudiblePlaybackStarted && !bAceSyncStart)
+	{
+		return;
+	}
+
+	if (bParallelAudiblePlaybackStarted && bAceSyncStart)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("Godfrey utterance %d: aborting early parallel audible play — resyncing to ACE OnAnimationStarted (%s)."),
+			UtteranceOrdinal,
+			GGodfreyParallelAudibleLogicStamp);
+		AbortParallelAudiblePlaybackForAceResync(true);
+	}
+
+	AActor* Character = TargetCharacter.Get();
+	UWorld* World = Character ? Character->GetWorld() : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("Godfrey utterance %d: TryStartParallel aborted — no world."),
+			UtteranceOrdinal);
+		return;
+	}
+
+	PrepareFreshParallelAudibleWave(Character);
+	if (!ParallelAudibleWave)
+	{
+		if (bIgnoreBufferThreshold || bAceSyncStart)
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("Godfrey utterance %d: TryStartParallel skipped — failed to allocate wave."),
+				UtteranceOrdinal);
+		}
+		return;
+	}
+
+	const int32 FrameSize = StreamNumChannels * static_cast<int32>(sizeof(int16));
+	if (FrameSize <= 0)
+	{
+		if (bIgnoreBufferThreshold)
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("Godfrey utterance %d: TryStartParallel aborted — invalid FrameSize."),
+				UtteranceOrdinal);
+		}
+		return;
+	}
+
+	const int32 EffectiveSampleRate = GetParallelAudibleEffectiveSampleRate();
+	if (EffectiveSampleRate <= 0)
+	{
+		if (bIgnoreBufferThreshold)
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("Godfrey utterance %d: TryStartParallel aborted — invalid EffectiveSampleRate."),
+				UtteranceOrdinal);
+		}
+		return;
+	}
+
+	// First play: prime procedural FIFO from RollingPcmBytes (ingest does not QueueAudio until after Play).
+	int16 RollingPeak = 0;
+	float RollingRms = 0.f;
+	ComputePcm16PeakRms(RollingPcmBytes, StreamNumChannels, RollingPeak, RollingRms);
+	if (RollingPcmBytes.Num() < FrameSize)
+	{
+		if (!bIgnoreBufferThreshold)
+		{
+			return;
+		}
+	}
+	else if (RollingPeak == 0)
+	{
+		if (!bIgnoreBufferThreshold)
+		{
+			UE_LOG(LogGodfreyPcmStream, Log,
+				TEXT("Godfrey utterance %d: deferring parallel audible Play until non-silent PCM exists in rolling buffer (rollingBytes=%d)."),
+				UtteranceOrdinal,
+				RollingPcmBytes.Num());
+			return;
+		}
+	}
+
+	ParallelAudibleQueuedBytes = 0;
+
+	int32 PcmStartOffset = 0;
+	if (bAceSyncStart)
+	{
+		if (UACEAudioCurveSourceComponent* AceComp = Character->FindComponentByClass<UACEAudioCurveSourceComponent>())
+		{
+			const float AcePlaybackSec = AceComp->GetProceduralPlaybackWallClockSeconds();
+			if (AcePlaybackSec > KINDA_SMALL_NUMBER && StreamSampleRate > 0)
+			{
+				const int32 SkipFrames = FMath::Clamp(
+					FMath::FloorToInt(AcePlaybackSec * static_cast<float>(StreamSampleRate)),
+					0,
+					RollingPcmBytes.Num() / FrameSize);
+				PcmStartOffset = SkipFrames * FrameSize;
+				if (PcmStartOffset > 0)
+				{
+					UE_LOG(LogGodfreyPcmStream, Log,
+						TEXT("Godfrey utterance %d: ACE-sync parallel audible — skipping %.3fs (%d bytes) to match ACE playback clock."),
+						UtteranceOrdinal,
+						AcePlaybackSec,
+						PcmStartOffset);
+				}
+			}
+		}
+	}
+
+	const int32 RollingBytesToQueue = RollingPcmBytes.Num() - PcmStartOffset;
+	if (RollingBytesToQueue >= FrameSize)
+	{
+		TArray<uint8> AudiblePcm;
+		int32 AudibleSampleRate = StreamSampleRate;
+		const TArrayView<const uint8> RollingSlice(RollingPcmBytes.GetData() + PcmStartOffset, RollingBytesToQueue);
+		TArray<uint8> RollingSliceCopy(RollingSlice.GetData(), RollingBytesToQueue);
+		UpsamplePcm16MonoForAudiblePlayback(RollingSliceCopy, StreamSampleRate, AudiblePcm, AudibleSampleRate);
+		if (AudiblePcm.Num() >= FrameSize)
+		{
+			const int32 NumFrames = AudiblePcm.Num() / FrameSize;
+			ParallelAudibleWave->SetSampleRate(AudibleSampleRate);
+			ParallelAudibleWave->NumChannels = StreamNumChannels;
+			ParallelAudibleWave->bLooping = false;
+			ParallelAudibleWave->SoundGroup = SOUNDGROUP_Default;
+			ParallelAudibleWave->VirtualizationMode = EVirtualizationMode::PlayWhenSilent;
+			if (bFinished)
+			{
+				ParallelAudibleWave->Duration = static_cast<float>(NumFrames) / static_cast<float>(AudibleSampleRate);
+				ParallelAudibleWave->TotalSamples = NumFrames * StreamNumChannels;
+				ParallelAudibleWave->RawPCMDataSize = AudiblePcm.Num();
+			}
+			else
+			{
+				ParallelAudibleWave->Duration = INDEFINITELY_LOOPING_DURATION;
+				ParallelAudibleWave->TotalSamples = 0;
+				ParallelAudibleWave->RawPCMDataSize = 0;
+			}
+			ParallelAudibleWave->QueueAudio(AudiblePcm.GetData(), AudiblePcm.Num());
+			ParallelAudibleQueuedBytes = AudiblePcm.Num();
+		}
+	}
+
+	if (ParallelAudibleQueuedBytes < FrameSize)
+	{
+		UE_LOG(LogGodfreyPcmStream, Warning,
+			TEXT("Godfrey utterance %d: parallel audible Play aborted — no primed PCM (rollingBytes=%d queuedAudibleBytes=%d rollingPeak=%d)."),
+			UtteranceOrdinal,
+			RollingPcmBytes.Num(),
+			ParallelAudibleQueuedBytes,
+			static_cast<int32>(RollingPeak));
+		return;
+	}
+
+	if (!bIgnoreBufferThreshold)
+	{
+		const float BufferSec = GetDefault<UUnrealPerformerGodfreySettings>()->GodfreyAceBufferLengthSeconds;
+		const int32 MinBytes = FMath::Max(FrameSize, FMath::RoundToInt(BufferSec * static_cast<float>(EffectiveSampleRate)) * FrameSize);
+		if (ParallelAudibleQueuedBytes < MinBytes)
+		{
+			return;
+		}
+	}
+
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("Godfrey utterance %d: priming parallel audible at ACE sync (%s). rollingBytes=%d pcmOffset=%d audibleQueuedBytes=%d rollingPeak=%d waveDuration=%.3fs finished=%d"),
+		UtteranceOrdinal,
+		GGodfreyParallelAudibleLogicStamp,
+		RollingPcmBytes.Num(),
+		PcmStartOffset,
+		ParallelAudibleQueuedBytes,
+		static_cast<int32>(RollingPeak),
+		ParallelAudibleWave ? ParallelAudibleWave->Duration : 0.f,
+		bFinished ? 1 : 0);
+
+	if (ParallelAudibleAudioComponent)
+	{
+		ParallelAudibleAudioComponent->Stop();
+		ParallelAudibleAudioComponent->DestroyComponent();
+		ParallelAudibleAudioComponent = nullptr;
+	}
+
+	if (bFinished)
+	{
+		UnbindParallelAudibleUnderflowDelegate();
+	}
+
+	const UUnrealPerformerGodfreySettings* Settings = GetDefault<UUnrealPerformerGodfreySettings>();
+	TryRestorePieAudibilityIfSilent(World, TEXT("TryStartParallelAudiblePlayback"));
+	bool bSpawnedAudible = false;
+	if (Settings->bGodfreyAudibleSpawnAtPlayerLocation)
+	{
+		FVector PlayLocation = Character ? Character->GetActorLocation() : FVector::ZeroVector;
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			FRotator PlayRotation;
+			PC->GetPlayerViewPoint(PlayLocation, PlayRotation);
+		}
+
+		ParallelAudibleAudioComponent = UGameplayStatics::SpawnSoundAtLocation(
+			World,
+			ParallelAudibleWave,
+			PlayLocation,
+			FRotator::ZeroRotator,
+			1.f,
+			1.f,
+			0.f,
+			nullptr,
+			nullptr,
+			false);
+
+		if (ParallelAudibleAudioComponent)
+		{
+			ParallelAudibleAudioComponent->bIsUISound = false;
+			ParallelAudibleAudioComponent->bAllowSpatialization = false;
+			ParallelAudibleAudioComponent->SetVolumeMultiplier(1.f);
+			bSpawnedAudible = true;
+		}
+	}
+
+	if (!bSpawnedAudible)
+	{
+		UGameplayStatics::PlaySound2D(World, ParallelAudibleWave);
+		ParallelAudibleAudioComponent = nullptr;
+	}
+
+	bParallelAudiblePlaybackStarted = true;
+
+	if (Settings->bGodfreyMuteAceWhenParallelAudibleStarts)
+	{
+		MuteAceVolumeForParallelLipSyncOnly();
+	}
+
+	const float QueuedAudioSec = static_cast<float>(ParallelAudibleQueuedBytes) / (static_cast<float>(EffectiveSampleRate) * static_cast<float>(FrameSize));
+	const bool bParallelIsPlaying = ParallelAudibleAudioComponent ? ParallelAudibleAudioComponent->IsPlaying() : false;
+	UE_LOG(LogGodfreyPcmStream, Log,
+		TEXT("Godfrey utterance %d: audible play (%s). spawnAtPlayer=%d AC=%p IsPlaying=%d QueuedBytes=%d SR=%d ~%.2fs waveDur=%.3fs ACE mute=%d."),
+		UtteranceOrdinal,
+		GGodfreyParallelAudibleLogicStamp,
+		Settings->bGodfreyAudibleSpawnAtPlayerLocation ? 1 : 0,
+		ParallelAudibleAudioComponent.Get(),
+		bParallelIsPlaying ? 1 : 0,
+		ParallelAudibleQueuedBytes,
+		EffectiveSampleRate,
+		QueuedAudioSec,
+		ParallelAudibleWave ? ParallelAudibleWave->Duration : 0.f,
+		bAceVolumeMutedForParallelLipSync ? 1 : 0);
+
+	LogAudiblePlaybackDiagnostics(TEXT("parallel-play-started"));
+	if (AActor* CharacterForTimer = TargetCharacter.Get())
+	{
+		ScheduleAudibleDiagnosticsTimer(CharacterForTimer->GetWorld());
+	}
+}
+
+int32 UGodfreyPcmStreamSession::GetParallelAudibleEffectiveSampleRate() const
+{
+	constexpr int32 MixerSampleRate = 48000;
+	if (StreamSampleRate <= 0)
+	{
+		return MixerSampleRate;
+	}
+
+	if (GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyUpsamplePcmToMixerRate
+		&& StreamSampleRate < MixerSampleRate
+		&& (MixerSampleRate % StreamSampleRate) == 0)
+	{
+		return MixerSampleRate;
+	}
+
+	return StreamSampleRate;
+}
+
+void UGodfreyPcmStreamSession::StopParallelAudiblePlayback(bool bRestoreAceVolume)
+{
+	CancelAudibleDiagnosticsTimer();
+	UnbindParallelAudibleUnderflowDelegate();
+
+	if (ParallelAudibleAudioComponent)
+	{
+		ParallelAudibleAudioComponent->Stop();
+		ParallelAudibleAudioComponent->DestroyComponent();
+		ParallelAudibleAudioComponent = nullptr;
+	}
+
+	if (ParallelAudibleWave)
+	{
+		ParallelAudibleWave->ResetAudio();
+		ParallelAudibleWave = nullptr;
+	}
+	bParallelAudiblePlaybackStarted = false;
+	ParallelAudibleQueuedBytes = 0;
+
+	if (bRestoreAceVolume && bSavedAceVolumeForParallelMute)
+	{
+		if (AActor* Character = TargetCharacter.Get())
+		{
+			if (UACEAudioCurveSourceComponent* AceComp = Character->FindComponentByClass<UACEAudioCurveSourceComponent>())
+			{
+				AceComp->Volume = SavedAceVolumeBeforeParallelMute;
+			}
+		}
+		bSavedAceVolumeForParallelMute = false;
+	}
+
+	bAceVolumeMutedForParallelLipSync = false;
+	bParallelAudibleActive = false;
+}
+
+void UGodfreyPcmStreamSession::UpsamplePcm16MonoForAudiblePlayback(
+	const TArray<uint8>& SourcePcm,
+	int32 SourceSampleRate,
+	TArray<uint8>& OutPcm,
+	int32& OutSampleRate) const
+{
+	OutPcm = SourcePcm;
+	OutSampleRate = SourceSampleRate;
+
+	if (!GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyUpsamplePcmToMixerRate || SourceSampleRate <= 0)
+	{
+		return;
+	}
+
+	constexpr int32 MixerSampleRate = 48000;
+	if (SourceSampleRate >= MixerSampleRate || (MixerSampleRate % SourceSampleRate) != 0)
+	{
+		return;
+	}
+
+	const int32 UpsampleFactor = MixerSampleRate / SourceSampleRate;
+	const int32 FrameSize = StreamNumChannels * static_cast<int32>(sizeof(int16));
+	if (FrameSize <= 0 || SourcePcm.Num() < FrameSize || (SourcePcm.Num() % FrameSize) != 0)
+	{
+		return;
+	}
+
+	const int32 NumFrames = SourcePcm.Num() / FrameSize;
+	const int16* Src = reinterpret_cast<const int16*>(SourcePcm.GetData());
+	OutPcm.SetNumUninitialized(NumFrames * UpsampleFactor * FrameSize);
+	int16* Dst = reinterpret_cast<int16*>(OutPcm.GetData());
+
+	for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
+	{
+		for (int32 ChannelIndex = 0; ChannelIndex < StreamNumChannels; ++ChannelIndex)
+		{
+			const int16 Sample = Src[FrameIndex * StreamNumChannels + ChannelIndex];
+			for (int32 RepeatIndex = 0; RepeatIndex < UpsampleFactor; ++RepeatIndex)
+			{
+				Dst[(FrameIndex * UpsampleFactor + RepeatIndex) * StreamNumChannels + ChannelIndex] = Sample;
+			}
+		}
+	}
+
+	OutSampleRate = MixerSampleRate;
+}
+
 void UGodfreyPcmStreamSession::HandleAceAnimationStarted()
 {
 	if (!IsActiveAceSessionForCharacter())
@@ -390,6 +1454,11 @@ void UGodfreyPcmStreamSession::HandleAceAnimationStarted()
 	}
 	UtteranceStartupMetrics.AceOnAnimationStartedPlatformSeconds = PlatformNow;
 	UtteranceStartupMetrics.bAceOnAnimationStartedObserved = true;
+
+	if (!bParallelAudiblePlaybackStarted)
+	{
+		TryStartParallelAudiblePlayback(true, false);
+	}
 
 	if (bDeferredAceUnbindActive && bFinished && (DeferredUnbindUtteranceOrdinal == UtteranceOrdinal))
 	{
@@ -434,6 +1503,8 @@ void UGodfreyPcmStreamSession::HandleAceAnimationStarted()
 	OnPlaybackStarted.Broadcast();
 	OnLipSyncStarted.Broadcast();
 
+	LogAudiblePlaybackDiagnostics(TEXT("OnAnimationStarted"));
+
 	UE_LOG(LogGodfreyPcmStream, Log,
 		TEXT("Facial animation pipeline active in sync with ACE audio clock (OnPlaybackStarted + OnLipSyncStarted broadcast)."));
 }
@@ -468,6 +1539,9 @@ void UGodfreyPcmStreamSession::HandleAceAnimationEnded()
 		TotalSamplesSentToAce);
 
 	OnPlaybackEnded.Broadcast();
+
+	LogAudiblePlaybackDiagnostics(TEXT("OnAnimationEnded"));
+	StopParallelAudiblePlayback(true);
 
 	if (bDeferredAceUnbindActive && bFinished && (DeferredUnbindUtteranceOrdinal == UtteranceOrdinal))
 	{
@@ -523,6 +1597,7 @@ bool UGodfreyPcmStreamSession::StartStream(UObject* WorldContextObject, AActor* 
 
 	CancelDeferredAceUnbind();
 	UnbindAceDelegates();
+	StopParallelAudiblePlayback(false);
 
 	TargetCharacter = CharacterForAce;
 	AceProviderName = ProviderName;
@@ -551,8 +1626,38 @@ bool UGodfreyPcmStreamSession::StartStream(UObject* WorldContextObject, AActor* 
 	UtteranceStartupMetrics.UtteranceOrdinal = UtteranceOrdinal;
 	UtteranceStartupMetrics.UtteranceT0PlatformSeconds = StreamStartPlatformSeconds;
 	bAcePlaybackEndedObserved = false;
+	bParallelAudiblePlaybackStarted = false;
+	ParallelAudibleQueuedBytes = 0;
+	ParallelAudibleQueueCallCount = 0;
+	ParallelProceduralUnderflowCount = 0;
+	AudibleDiagnosticsTickCount = 0;
+	bLoggedFirstParallelQueue = false;
+	bLoggedFirstNonSilentParallelQueue = false;
+	bParallelAudibleActive = false;
+	bAceVolumeMutedForParallelLipSync = false;
+	bSavedAceVolumeForParallelMute = false;
 
 	ApplyGodfreyAcePlaybackPriming(AceComp);
+
+	const bool bUseParallelAudible = GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyUseParallelPcmAudiblePlayback;
+	if (bUseParallelAudible)
+	{
+		EnsureParallelAudibleWave(CharacterForAce);
+		if (ParallelAudibleWave)
+		{
+			bParallelAudibleActive = true;
+			UE_LOG(LogGodfreyPcmStream, Log,
+				TEXT("Godfrey utterance %d: parallel PCM audible path armed (%s; WavUrl PlaySound2D at ACE OnAnimationStarted)."),
+				UtteranceOrdinal,
+				GGodfreyParallelAudibleLogicStamp);
+		}
+		else
+		{
+			UE_LOG(LogGodfreyPcmStream, Warning,
+				TEXT("Godfrey utterance %d: parallel PCM wave allocation failed — falling back to ACE internal audible path."),
+				UtteranceOrdinal);
+		}
+	}
 
 	const float AceChunkMsCfg = GetDefault<UUnrealPerformerGodfreySettings>()->AceMaxPcmPushChunkDurationMs;
 	const int32 AceSubchunkBytes = ComputeMaxPcmBytesPerAceSubChunk(StreamSampleRate, StreamNumChannels, AceChunkMsCfg);
@@ -577,12 +1682,13 @@ bool UGodfreyPcmStreamSession::StartStream(UObject* WorldContextObject, AActor* 
 	RegisterAsActiveAceSessionForCharacter();
 
 	UE_LOG(LogGodfreyPcmStream, Log,
-		TEXT("Godfrey utterance %d: fresh session — ACE OnAnimationStarted/OnAnimationEnded bound; audible output uses ACE internal AudioComponent after Play(). Character=%s"),
+		TEXT("Godfrey utterance %d: fresh session — ACE OnAnimationStarted/OnAnimationEnded bound; audible=%s Character=%s"),
 		UtteranceOrdinal,
+		bParallelAudibleActive ? TEXT("WavUrl PlaySound2D after OnAnimationStarted") : TEXT("ACE internal AudioComponent after Play()"),
 		*CharacterForAce->GetName());
 
 	UE_LOG(LogGodfreyPcmStream, Log,
-		TEXT("Stream started (ACE-only playback). UtteranceOrdinal=%d SampleRate=%d Channels=%d Provider=%s Character=%s ACE_BufferLengthSec=%.4f ACE_Volume=%.3f StreamT0=%.6f ClientReqT0=%.6f"),
+		TEXT("Stream started. UtteranceOrdinal=%d SampleRate=%d Channels=%d Provider=%s Character=%s ACE_BufferLengthSec=%.4f ACE_Volume=%.3f ParallelAudible=%d StreamT0=%.6f ClientReqT0=%.6f"),
 		UtteranceOrdinal,
 		StreamSampleRate,
 		StreamNumChannels,
@@ -590,6 +1696,7 @@ bool UGodfreyPcmStreamSession::StartStream(UObject* WorldContextObject, AActor* 
 		*CharacterForAce->GetName(),
 		AceComp->BufferLengthInSeconds,
 		AceComp->Volume,
+		bParallelAudibleActive ? 1 : 0,
 		StreamStartPlatformSeconds,
 		ClientRequestT0PlatformSeconds);
 
@@ -786,6 +1893,14 @@ bool UGodfreyPcmStreamSession::PushPcm16Chunk(const TArray<uint8>& PcmBytes, FSt
 
 	RollingPcmBytes.Append(PcmBytes);
 
+	if (bParallelAudibleActive)
+	{
+		if (bParallelAudiblePlaybackStarted)
+		{
+			QueueParallelAudiblePcm(PcmBytes);
+		}
+	}
+
 	UE_LOG(LogGodfreyPcmStream, Verbose, TEXT("PCM sent to ACE. ChunkBytes=%d TotalSamplesToACE=%lld BufferedBytes=%d"),
 		PcmBytes.Num(),
 		TotalSamplesSentToAce,
@@ -843,6 +1958,8 @@ bool UGodfreyPcmStreamSession::FinishStream(FString& OutError)
 		}
 	}
 
+	LogAudiblePlaybackDiagnostics(TEXT("FinishStream"));
+
 	RestoreGodfreyAcePlaybackPrimingIfApplied();
 
 	UWorld* CharacterWorld = nullptr;
@@ -852,6 +1969,15 @@ bool UGodfreyPcmStreamSession::FinishStream(FString& OutError)
 	}
 
 	const float DelegateGraceSeconds = GetDefault<UUnrealPerformerGodfreySettings>()->GodfreyAcePostFinishOnAnimationStartedDelegateGraceSeconds;
+	bFinished = true;
+
+	if (bParallelAudibleActive
+		&& GetDefault<UUnrealPerformerGodfreySettings>()->bGodfreyPlayAudibleAtFinishStream
+		&& !bParallelAudiblePlaybackStarted)
+	{
+		TryStartParallelAudiblePlayback(true, false);
+	}
+
 	if (CharacterWorld)
 	{
 		ScheduleDeferredAceUnbindAfterFinishStream(CharacterWorld, FinishPlatformSeconds);
@@ -864,7 +1990,6 @@ bool UGodfreyPcmStreamSession::FinishStream(FString& OutError)
 		UnbindAceDelegates();
 	}
 
-	bFinished = true;
 	UE_LOG(LogGodfreyPcmStream, Log, TEXT("Stream finished. Utterance=%d SamplesSentToACE=%lld BufferedBytes=%d"), UtteranceOrdinal, TotalSamplesSentToAce, RollingPcmBytes.Num());
 	LogUtteranceLatencySummaryAtFinishIfEnabled(FinishPlatformSeconds);
 	if (FirstOnAnimationStartedPlatformSeconds < 0.0)
@@ -890,6 +2015,7 @@ void UGodfreyPcmStreamSession::StopStream()
 	const double StopWallSeconds = FPlatformTime::Seconds();
 	CancelDeferredAceUnbind();
 	RestoreGodfreyAcePlaybackPrimingIfApplied();
+	StopParallelAudiblePlayback(true);
 	if (bStreamStarted && !bAcePlaybackEndedObserved)
 	{
 		OnPlaybackEnded.Broadcast();

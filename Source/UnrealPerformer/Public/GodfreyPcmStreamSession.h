@@ -9,13 +9,16 @@
 
 class AActor;
 class UACEAudioCurveSourceComponent;
+class UAudioComponent;
+class USoundWaveProcedural;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGodfreyStreamSimpleEvent);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGodfreyStreamErrorEvent, const FString&, ErrorMessage);
 
 /**
- * Streams PCM16 into NVIDIA ACE (AnimateFromAudioSamples). Audible playback and curve sync are owned by
- * UACEAudioCurveSourceComponent's internal AudioComponent — no parallel procedural SoundWave playback.
+ * Streams PCM16 into NVIDIA ACE (AnimateFromAudioSamples). Lip-sync curves come from ACE;
+ * audible output uses either ACE internal playback or an optional parallel 2D procedural player
+ * (see bGodfreyUseParallelPcmAudiblePlayback).
  */
 UCLASS(BlueprintType)
 class UNREAL_PERFORMER_API UGodfreyPcmStreamSession : public UObject
@@ -87,7 +90,24 @@ private:
 	void LogUtteranceLatencySummaryAtFinishIfEnabled(double FinishPlatformSeconds) const;
 	void ApplyGodfreyAcePlaybackPriming(UACEAudioCurveSourceComponent* AceComp);
 	void RestoreGodfreyAcePlaybackPrimingIfApplied();
+	void EnsureParallelAudibleWave(AActor* Character);
+	void PrepareFreshParallelAudibleWave(AActor* Character);
+	void AbortParallelAudiblePlaybackForAceResync(bool bRestoreAceVolume);
+	void QueueParallelAudiblePcm(const TArray<uint8>& PcmBytes);
+	void TryStartParallelAudiblePlayback(bool bIgnoreBufferThreshold = false, bool bAceSyncStart = false);
+	void StopParallelAudiblePlayback(bool bRestoreAceVolume);
+	void MuteAceVolumeForParallelLipSyncOnly();
+	void UpdateParallelAudibleWaveDuration();
+	void UpsamplePcm16MonoForAudiblePlayback(const TArray<uint8>& SourcePcm, int32 SourceSampleRate, TArray<uint8>& OutPcm, int32& OutSampleRate) const;
+	int32 GetParallelAudibleEffectiveSampleRate() const;
 	void LogGodfreyAceStartupCompletionSummary(double FinishPlatformSeconds) const;
+	void LogAudiblePlaybackDiagnostics(const TCHAR* ContextLabel) const;
+	void ScheduleAudibleDiagnosticsTimer(UWorld* World);
+	void CancelAudibleDiagnosticsTimer();
+	void AudibleDiagnosticsTimerTick();
+	void BindParallelAudibleUnderflowDelegate();
+	void UnbindParallelAudibleUnderflowDelegate();
+	void HandleParallelProceduralUnderflow(USoundWaveProcedural* Wave, int32 SamplesRequired);
 
 	UFUNCTION()
 	void HandleAceAnimationStarted();
@@ -140,4 +160,25 @@ private:
 	int32 DeferredUnbindUtteranceOrdinal = 0;
 	double DeferredUnbindStartPlatformSeconds = 0.0;
 	double DeferredUnbindFinishStreamPlatformSeconds = 0.0;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> ParallelAudibleAudioComponent;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USoundWaveProcedural> ParallelAudibleWave;
+
+	int32 ParallelAudibleQueuedBytes = 0;
+	bool bParallelAudiblePlaybackStarted = false;
+	bool bParallelAudibleActive = false;
+	bool bAceVolumeMutedForParallelLipSync = false;
+	bool bSavedAceVolumeForParallelMute = false;
+	float SavedAceVolumeBeforeParallelMute = 1.f;
+
+	FTimerHandle AudibleDiagnosticsTimerHandle;
+	TWeakObjectPtr<UWorld> AudibleDiagnosticsWorld;
+	int32 ParallelAudibleQueueCallCount = 0;
+	int32 ParallelProceduralUnderflowCount = 0;
+	int32 AudibleDiagnosticsTickCount = 0;
+	bool bLoggedFirstParallelQueue = false;
+	bool bLoggedFirstNonSilentParallelQueue = false;
 };

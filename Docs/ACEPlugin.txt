@@ -15,6 +15,11 @@ Setup (if junctions are missing after clone):
 Or copy both plugin folders from Test_Live_Audio / Epic Marketplace install.
 
 Phase 7 speech requires BOTH plugins enabled in UnrealPerformer.uproject.
+Lip sync also requires Face_AnimBP with the ACE "Apply ACE Face Animations" node.
+Stock Quixel Bridge Face_AnimBP does not include it — use Test_Live_Audio's patched copy:
+  Test_Live_Audio/Content/MetaHumans/Common/Face/Face_AnimBP.uasset
+  → MetaHuman_Baseline_Test/Content/MetaHumans/Common/Face/Face_AnimBP.uasset
+  (or run Scripts/setup_phase7_step3_face_ace_lipsync.py)
 Without NvAudio2FaceMark you will see:
   LogACERuntime: No A2F-3D provider available to create A2F-3D session
   ACE rejected audio chunk for provider 'LocalA2F-Mark'

@@ -108,6 +108,13 @@ public:
 
 	bool bLogPerAnimateChunkWallTime = false;
 
+	/**
+	 * Log parallel PCM + ACE audible state (mixer device, AudioComponent play state, procedural queue depth,
+	 * underflows). Emits snapshots at parallel start, periodic ticks during playback, and FinishStream.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Diagnostics")
+	bool bGodfreyLogAudiblePlaybackDiagnostics = true;
+
 
 
 	/** Default silence duration for WarmupAcePipeline / UGodfreyAceWarmupComponent. */
@@ -202,7 +209,39 @@ public:
 
 	float GodfreyAcePostFinishOnAnimationStartedDelegateGraceSeconds = 10.f;
 
+	/**
+	 * Route audible PCM through WavUrl-style USoundWaveProcedural + PlaySound2D at ACE OnAnimationStarted.
+	 * ACE internal procedural audio is used for lip-sync curves; this path is the reliable audible output
+	 * (matches Test_Live_Audio WavUrlSoundLibrary). When false, only ACE internal playback is used.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "ACE Playback Priming")
+	bool bGodfreyUseParallelPcmAudiblePlayback = true;
 
+	/**
+	 * When parallel audible playback is active, set ACE Volume=0 after the parallel AudioComponent
+	 * confirms IsPlaying (lip-sync curves only on ACE). Off by default so ACE remains audible if
+	 * parallel SpawnSound2D fails or starves.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "ACE Playback Priming", meta = (EditCondition = "bGodfreyUseParallelPcmAudiblePlayback"))
+	bool bGodfreyMuteAceWhenParallelAudibleStarts = false;
+
+	/** Upsample 24 kHz brain PCM to 48 kHz before parallel audible playback (matches default AudioMixer platform rate). */
+	UPROPERTY(Config, EditAnywhere, Category = "ACE Playback Priming")
+	bool bGodfreyUpsamplePcmToMixerRate = true;
+
+	/**
+	 * Start WavUrl-style audible playback at FinishStream (full HTTP buffer, no ACE clock skip).
+	 * Matches Test_Live_Audio: download complete -> QueueAudio -> Play. Lip-sync still follows ACE OnAnimationStarted.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "ACE Playback Priming", meta = (EditCondition = "bGodfreyUseParallelPcmAudiblePlayback"))
+	bool bGodfreyPlayAudibleAtFinishStream = true;
+
+	/**
+	 * Spawn audible at the player camera with bIsUISound=false (non-UI). Falls back to PlaySound2D if spawn fails.
+	 * Use when UISound procedural playback is inaudible in PIE (buffer drains but speakers stay silent).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "ACE Playback Priming", meta = (EditCondition = "bGodfreyUseParallelPcmAudiblePlayback"))
+	bool bGodfreyAudibleSpawnAtPlayerLocation = true;
 
 	virtual FName GetCategoryName() const override;
 

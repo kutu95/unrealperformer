@@ -42,11 +42,21 @@ ACE_WARMUP_CLASS = "/Script/UnrealPerformer.GodfreyAceWarmupComponent"
 ACE_WARMUP_LABEL = "GodfreyAceWarmup"
 DIRECT_SPEECH_CLASS = "/Script/UnrealPerformer.GodfreyDirectSpeechComponent"
 DIRECT_SPEECH_LABEL = "GodfreyDirectSpeech"
+QUEUE_POLL_CLASS = "/Script/UnrealPerformer.GodfreyExhibitionQueuePollComponent"
+QUEUE_POLL_LABEL = "GodfreyExhibitionQueuePoll"
+GM_GODFREY_EXHIBIT = "/Game/Godfrey/GM_Godfrey_Exhibit"
+GODFREY_CHARACTER_TAG = "GodfreyCharacter"
 FACE_ANIM_BP_PATH = "/Game/MetaHumans/Common/Face/Face_AnimBP"
 
 FORBIDDEN_STEP7_COMPONENTS = (
     "GodfreyGazeReactionComponent",
     "AudioCaptureComponent",
+)
+
+FORBIDDEN_STEP7_QUEUE_POLL_COMPONENTS = (
+    "GodfreyGazeReactionComponent",
+    "AudioCaptureComponent",
+    "GodfreyDirectSpeechComponent",
 )
 
 
@@ -562,3 +572,131 @@ def audit_step7_speech_lipsync_blueprint(bp) -> dict[str, object]:
     core["bridge_inert"] = True
     core["body_actions_disabled"] = True
     return core
+
+
+def remove_component_by_class(bp, class_substring: str) -> bool:
+    subsystem = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+    if not subsystem:
+        raise RuntimeError("SubobjectDataSubsystem unavailable")
+
+    actor_handle, _root_handle = find_subobject_handles(bp)
+    if not actor_handle:
+        raise RuntimeError("No actor handle for blueprint subobject delete")
+
+    lib = unreal.SubobjectDataBlueprintFunctionLibrary
+    for handle in subsystem.k2_gather_subobject_data_for_blueprint(bp):
+        data = lib.get_data(handle)
+        if not data or not lib.is_component(data):
+            continue
+        if lib.is_native_component(data):
+            continue
+        component = lib.get_object_for_blueprint(data, bp)
+        if not component or class_substring not in component.get_class().get_name():
+            continue
+        deleted = subsystem.delete_subobject(actor_handle, handle, bp)
+        return deleted > 0
+    return False
+
+
+def remove_direct_speech(bp) -> bool:
+    return remove_component_by_class(bp, "GodfreyDirectSpeechComponent")
+
+
+def add_exhibition_queue_poll(bp) -> bool:
+    return add_component_to_blueprint(bp, QUEUE_POLL_LABEL, QUEUE_POLL_CLASS, "actor")
+
+
+def configure_exhibition_queue_poll(bp) -> dict[str, str]:
+    poll, label = find_component_by_class(bp, "GodfreyExhibitionQueuePollComponent")
+    if not poll:
+        raise RuntimeError("GodfreyExhibitionQueuePollComponent not found")
+
+    changes: dict[str, str] = {"poll_label": label or QUEUE_POLL_LABEL}
+    for names, value, key in (
+        (["godfrey_brain_base_url", "GodfreyBrainBaseUrl"], "http://localhost:3000", "GodfreyBrainBaseUrl"),
+        (["ace_provider_name", "AceProviderName"], "LocalA2F-Mark", "AceProviderName"),
+        (["stream_sample_rate", "StreamSampleRate"], 24000, "StreamSampleRate"),
+        (["stream_num_channels", "StreamNumChannels"], 1, "StreamNumChannels"),
+        (["poll_interval_seconds", "PollIntervalSeconds"], 1.0, "PollIntervalSeconds"),
+        (["b_poll_on_begin_play", "bPollOnBeginPlay"], True, "bPollOnBeginPlay"),
+        (["character_actor_tag", "CharacterActorTag"], GODFREY_CHARACTER_TAG, "CharacterActorTag"),
+    ):
+        if set_prop(poll, names, value):
+            changes[key] = str(value)
+    return changes
+
+
+def audit_step7_exhibition_queue_performer(bp) -> dict[str, object]:
+    forbidden = _forbidden_components(bp, FORBIDDEN_STEP7_QUEUE_POLL_COMPONENTS)
+    if forbidden:
+        raise RuntimeError(
+            "Exhibition queue performer must not include DirectSpeech/gaze/mic: " + ", ".join(forbidden)
+        )
+
+    bridge, _ = find_component_by_class(bp, "GodfreyPerformerAnimationBridgeComponent")
+    if not bridge:
+        raise RuntimeError("Missing GodfreyPerformerAnimationBridgeComponent")
+    if _bridge_auto_activate(bridge) is not False:
+        raise RuntimeError("Bridge bAutoActivate must stay False")
+
+    state, _ = find_component_by_class(bp, "GodfreyPerformanceStateComponent")
+    if not state:
+        raise RuntimeError("Missing GodfreyPerformanceStateComponent")
+
+    warmup, _ = find_component_by_class(bp, "GodfreyAceWarmupComponent")
+    if not warmup:
+        raise RuntimeError("Missing GodfreyAceWarmupComponent")
+
+    core = audit_core_performer_stack(bp)
+    core.update(audit_ace_active(bp))
+    core["ace_warmup_present"] = True
+    core["direct_speech_absent"] = True
+    core["exhibition_queue_on_gamemode"] = True
+    return core
+
+
+def audit_gamemode_exhibition_queue(bp) -> dict[str, object]:
+    poll, poll_label = find_component_by_class(bp, "GodfreyExhibitionQueuePollComponent")
+    if not poll:
+        raise RuntimeError("Missing GodfreyExhibitionQueuePollComponent on GameMode")
+
+    if _get_bool_prop(poll, ("b_poll_on_begin_play", "bPollOnBeginPlay")) is not True:
+        raise RuntimeError("Queue poll bPollOnBeginPlay must be True")
+
+    interval = None
+    for names in (["poll_interval_seconds", "PollIntervalSeconds"],):
+        try:
+            interval = poll.get_editor_property(names[0])
+        except Exception:
+            try:
+                interval = poll.get_editor_property(names[1])
+            except Exception:
+                pass
+    if interval is None or abs(float(interval) - 1.0) > 0.01:
+        raise RuntimeError(f"Queue poll PollIntervalSeconds should be ~1.0 (got {interval!r})")
+
+    return {
+        "queue_poll_present": True,
+        "queue_poll_label": poll_label,
+        "bPollOnBeginPlay": True,
+        "PollIntervalSeconds": interval,
+    }
+
+
+def tag_godfrey_performer_in_level(performer_label: str = "BP_Godfrey_Performer") -> str:
+    eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    if not eas:
+        raise RuntimeError("EditorActorSubsystem unavailable — open Godfrey_World in editor")
+
+    for actor in eas.get_all_level_actors():
+        if not actor:
+            continue
+        if actor.get_actor_label() != performer_label:
+            continue
+        tags = list(actor.tags)
+        if GODFREY_CHARACTER_TAG not in tags:
+            tags.append(GODFREY_CHARACTER_TAG)
+            actor.tags = tags
+        return f"Tagged {GODFREY_CHARACTER_TAG} on {performer_label}"
+
+    raise RuntimeError(f"No level actor with label {performer_label}")

@@ -97,6 +97,9 @@ void UGodfreyAceWarmupComponent::ExecuteWarmup()
 		AceComp->Volume = SavedVolume;
 	}
 
+	// Release warmup AudioComponent so it cannot hold the procedural mixer path during real speech.
+	AceComp->Stop();
+
 	if (!bWarmupOk)
 	{
 		UE_LOG(LogGodfreyAceWarmup, Warning,

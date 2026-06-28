@@ -154,11 +154,24 @@ Tagged: phase6-exhibit-wiring-stable
 ================================================================================
 PHASE 7 — Speech + lip sync (body actions still OFF)
 ================================================================================
-One-shot chunk (2026-06-28): port speech C++ from Test_Live_Audio, wire active ACE + warmup +
-DirectSpeech on BP_Godfrey_Performer. Bridge montages and performance-state auto routing stay OFF.
+One-shot chunk (2026-06-28): port speech C++ from Test_Live_Audio, wire active ACE + warmup on
+BP_Godfrey_Performer. Bridge montages and performance-state auto routing stay OFF.
+
+Step 1 (dev G-key path — superseded for exhibition):
+  - setup_phase7_step1_speech_lipsync_only.py — DirectSpeech + dev keyboard G
+
+Step 2 (production exhibition path — matches Test_Live_Audio queue poll):
+  - GodfreyExhibitionQueuePollComponent on GM_Godfrey_Exhibit (~1s → PullQueuedGodfreySpeechToAudio)
+  - Removes GodfreyDirectSpeech from performer (no G key)
+  - setup_phase7_step2_exhibition_queue_poll.py (headless BP + GM edit)
+
+Step 3 (lip sync graph — ACE Apply node on Face_AnimBP):
+  - Stock Bridge Face_AnimBP lacks Apply ACE Face Animations; copy ACE-patched asset from Test_Live_Audio
+  - setup_phase7_step3_face_ace_lipsync.py
+  - PIE log should include: [ACE sync] First curve weights applied
 
 C++ ported to UnrealPerformer module:
-  - GodfreyDirectSpeechComponent, GodfreyAceWarmupComponent
+  - GodfreyDirectSpeechComponent, GodfreyAceWarmupComponent, GodfreyExhibitionQueuePollComponent
   - AsyncActionStreamGodfreySpeech, GodfreyPcmStreamSession
   - UnrealPerformerGodfreySettings + ACE startup in UnrealPerformer.cpp
 
@@ -166,14 +179,14 @@ Plugins required (junction from Test_Live_Audio — see Docs/ACEPlugin.txt):
   - NV_ACE_Reference
   - NvAudio2FaceMark  (registers LocalA2F-Mark — without it ACE rejects all audio chunks)
 
-Script:
-  - setup_phase7_step1_speech_lipsync_only.py (headless BP edit)
+ON:  ACE bAutoActivate=true, AceWarmup on performer, queue poll on GM_Godfrey_Exhibit
+OFF: bridge bAutoActivate, performance auto utterance/cues, montages, gaze, mic capture, DirectSpeech
 
-ON:  ACE bAutoActivate=true, AceWarmup, DirectSpeech (dev key G)
-OFF: bridge bAutoActivate, performance auto utterance/cues, montages, gaze, mic capture
+PASS GATE: PIE on Godfrey_World, Godfrey Brain at localhost:3000, queue TTS from exhibition site —
+hear voice + lip sync without pressing G. Zoom-test shirt 30+ s after speech test.
 
-PASS GATE: PIE on Godfrey_World, Godfrey Brain at localhost:3000, press G — hear voice + lip sync,
-no body gesture montages. Zoom-test shirt 30+ s after speech test.
+ACE audio in PIE: procedural voice uses bIsUISound (no distance attenuation). Warmup calls Stop()
+after silent priming so speech gets a clean AudioComponent. Rebuild after ACE plugin edits.
 
 Stop at first step that breaks zoom or speech.
 DO NOT USE AS ROLLBACK / DONOR
