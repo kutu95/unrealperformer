@@ -92,8 +92,8 @@ Only after Phase 0–5 pass. Add in order, zoom-test after each:
   2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)  [PASSED 2026-06-28]
   3. Body anim instance  [PASSED 2026-06-28]
   4. ACE audio curve source  [PASSED 2026-06-28]
-  5. Speech / performance state  [SCRIPT READY]
-  6. World Partition + exhibit placement
+  5. Speech / performance state  [PASSED 2026-06-28]
+  6. World Partition + exhibit placement  [IN PROGRESS — finalize script]
 
 Step 1 scripts (2026-06-28):
   - provision_phase6_godfrey_performer_asset.py — headless: duplicate BP_Kristofer ->
@@ -133,7 +133,13 @@ Step 5 (2026-06-28):
   - bAutoActivate=false, bAutoSpeakingStateFromUtterance=false, bRoutePerformanceCuesToStates=false
   - Bridge + ACE remain inert; no DirectSpeech / AudioCapture / AceWarmup / Gaze
 
-PASS GATE (step 5): zoom shirt 30+ s with idle performance state bus only.
+PASS GATE (step 5): zoom shirt 30+ s with idle performance state bus only.  PASSED.
+
+Step 6 (2026-06-28):
+  - setup_phase6_step6_exhibit_finalize.py — confirm BP stack + Godfrey_World placement + verify
+  - Editor preferred for level save; headless verify gate after
+
+PASS GATE (step 6): verify_godfrey_exhibit.py PASS + zoom shirt 30+ s (full Phase 6 stack).
 
 Stop at first step that breaks zoom.
 DO NOT USE AS ROLLBACK / DONOR
