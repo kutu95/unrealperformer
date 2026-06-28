@@ -1,0 +1,16 @@
+---
+description: UnrealPerformer / Godfrey migration — UE 5.6.1 instructions only
+globs: Docs/**,Scripts/**,Source/**,Config/**,*.uproject
+alwaysApply: true
+---
+
+# UE 5.6.1 only (UnrealPerformer)
+
+This project targets **Unreal Engine 5.6.1** (`UnrealPerformer.uproject`). When giving editor steps, Python API names, menu paths, or component properties:
+
+1. **Only cite UE 5.6** behavior. Do not reuse UE 4.x, 5.0–5.5, or 5.7+ UI/API unless the user explicitly asks for a version comparison.
+2. **Verify against** `Docs/UE56_EditorScriptingGuidelines.md` and Epic 5.6 Python docs (`application_version=5.6`).
+3. **Native C++ classes** (e.g. `GameModeBase`) often **hide** editable defaults in World Settings — prefer **Blueprint subclasses** or project scripts when users cannot find a property.
+4. **Cine Camera Actor** ≠ **Camera Actor** — no "Auto Activate for Player" on cine cameras; use Level Blueprint `Set View Target with Blend`.
+5. **World Partition / OFPA**: do not headless-spawn exhibit actors; use editor UI or editor-only Python per guidelines.
+6. If unsure whether a menu or API exists in 5.6, say so and offer a 5.6-specific alternative — do not guess older Epic forum answers.

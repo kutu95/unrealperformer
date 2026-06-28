@@ -3,11 +3,24 @@
 Basis for all future programmatic changes in this project.  
 Engine: **UE 5.6.1** | Map: **Godfrey_World** (World Partition + One File Per Actor)
 
+> **Cursor / AI rule:** Instructions in this repo are **UE 5.6.1 only**. Do not give editor steps or Python APIs from other engine versions. See `.cursor/rules/ue56-only.mdc` and the section below.
+
 Official references:
 - [EditorActorSubsystem (Python 5.6)](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/EditorActorSubsystem?application_version=5.6)
 - [WorldPartitionBlueprintLibrary (Python)](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/WorldPartitionBlueprintLibrary)
 - [One File Per Actor](https://dev.epicgames.com/documentation/en-us/unreal-engine/one-file-per-actor-in-unreal-engine)
 - [Level.use_external_actors](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/Level?application_version=5.6)
+
+---
+
+## Cursor / AI: UE 5.6.1 instructions only
+
+When assisting on this project, agents must:
+
+- Target **UE 5.6.1** menus, properties, and Python APIs only (link docs with `application_version=5.6`).
+- Not assume **Camera Actor** and **Cine Camera Actor** share the same details panel.
+- Not tell users to set **Default Pawn Class** on bare native **`GameModeBase`** in World Settings — that field is only editable on a **Blueprint GameMode** (use `GM_Godfrey_Exhibit` or `setup_fix_godfrey_exhibit_play_sphere.py`).
+- Prefer scripts in `Scripts/` and this file over memory of older forum posts.
 
 ---
 
@@ -73,6 +86,7 @@ Optional audit:
 | `setup_phase6_step2_animation_bridge.py` | Phase 6 step 2 — add inert animation bridge | Yes (BP asset edit) |
 | `setup_phase6_step3_body_anim_instance.py` | Phase 6 step 3 — GodfreyBodyAnimInstance on Body | Yes (BP asset edit) |
 | `setup_phase6_step4_ace_audio_curve_source.py` | Phase 6 step 4 — ACE audio curve source (inactive) | Yes (BP asset edit) |
+| `setup_fix_godfrey_exhibit_play_sphere.py` | Exhibit PIE — no DefaultPawn checkerboard sphere | Editor preferred (sets level GameMode) |
 | ~~`provision_stage_backdrop.py`~~ | **Deprecated** — caused WP cell splits | **No** |
 
 ### 5. Source control (OFPA)
@@ -104,3 +118,24 @@ Remove-Item -Force Content/__ExternalActors__/Godfrey_World/2/O2/KKQRBJFPGMYGCN8
 4. Optional: add **Rect Light** labeled `Stage_BackdropFill`
 5. Save level (`Ctrl+S`)
 6. Run `save_stage_backdrop_transform.py` from editor to backup transform to `Config/StageBackdropTransform.json`
+
+---
+
+## Exhibit Play (PIE) — no checkerboard sphere
+
+**Symptom:** Dark checkerboard **sphere** in front of Kristofer on Play (often first Play only).  
+**Cause:** Native `GameModeBase` spawns `DefaultPawn` (a visible sphere). **Selected Viewport** play moves spawn with the editor camera.
+
+**Fix (applied by script or manually):**
+
+1. Blueprint **GameMode** `GM_Godfrey_Exhibit` (parent `GameModeBase`) → **Class Defaults** → **Default Pawn Class** = **None**  
+   (Not editable on native `GameModeBase` in World Settings — UE 5.6 limitation.)
+2. **World Settings** → **GameMode Override** = `GM_Godfrey_Exhibit`
+3. Keep Level Blueprint **Set View Target** → `Exhibit_CineCamera`
+
+```text
+Tools > Execute Python Script (Godfrey_World open):
+  Scripts/setup_fix_godfrey_exhibit_play_sphere.py
+```
+
+Migration zoom gates use **editor viewport zoom**, not Play — but this keeps PIE clean for exhibit review.
