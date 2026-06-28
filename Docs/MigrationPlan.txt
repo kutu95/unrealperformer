@@ -91,7 +91,7 @@ Only after Phase 0–5 pass. Add in order, zoom-test after each:
   1. Godfrey performer BP shell around Kristofer (meshes only, no bridge)  [PASSED 2026-06-28]
   2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)  [PASSED 2026-06-28]
   3. Body anim instance  [PASSED 2026-06-28]
-  4. ACE audio curve source
+  4. ACE audio curve source  [SCRIPT READY]
   5. Speech / performance state
   6. World Partition + exhibit placement
 
@@ -118,6 +118,13 @@ Step 3 (2026-06-28):
   - Face stays stock Face_AnimBP; bridge remains bAutoActivate=false
 
 PASS GATE (step 3): zoom shirt 30+ s with GodfreyBodyAnimInstance on Body.  PASSED.
+
+Step 4 (2026-06-28):
+  - setup_phase6_step4_ace_audio_curve_source.py — ACEAudioCurveSource on root
+  - bAutoActivate=false, bEnableAttenuationDebug=false (avoids debug sphere on Play)
+  - Face stays Face_AnimBP; bridge still inert; no PerformanceState / AudioCapture / speech
+
+PASS GATE (step 4): zoom shirt 30+ s with ACE component present but inactive.
 
 Stop at first step that breaks zoom.
 DO NOT USE AS ROLLBACK / DONOR

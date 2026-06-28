@@ -19,6 +19,18 @@ FORBIDDEN_STEP2_COMPONENTS = (
     "GodfreyDirectSpeechComponent",
 )
 
+FORBIDDEN_STEP4_COMPONENTS = (
+    "GodfreyPerformanceStateComponent",
+    "GodfreyAceWarmupComponent",
+    "GodfreyGazeReactionComponent",
+    "AudioCaptureComponent",
+    "GodfreyDirectSpeechComponent",
+)
+
+ACE_CURVE_SOURCE_CLASS = "/Script/ACERuntime.ACEAudioCurveSourceComponent"
+ACE_CURVE_SOURCE_LABEL = "ACEAudioCurveSource"
+FACE_ANIM_BP_PATH = "/Game/MetaHumans/Common/Face/Face_AnimBP"
+
 
 def set_prop(obj, names: list[str], value) -> str | None:
     for name in names:
@@ -172,38 +184,66 @@ def configure_inert_bridge(bp) -> dict[str, str]:
     return changes
 
 
-def audit_step2_blueprint(bp) -> dict[str, object]:
+def _forbidden_components(bp, tokens: tuple[str, ...]) -> list[str]:
+    hits: list[str] = []
+    for comp_label, component, _h, _d in iter_all_components(bp):
+        cls = component.get_class().get_name()
+        for token in tokens:
+            if token in cls:
+                hits.append(f"{comp_label} ({cls})")
+    return hits
+
+
+def _bridge_auto_activate(bridge) -> object:
+    for names in (["b_auto_activate", "bAutoActivate"],):
+        try:
+            return bridge.get_editor_property(names[0])
+        except Exception:
+            try:
+                return bridge.get_editor_property(names[1])
+            except Exception:
+                pass
+    return None
+
+
+def audit_core_performer_stack(bp) -> dict[str, object]:
     bridge, _ = find_component_by_class(bp, "GodfreyPerformerAnimationBridgeComponent")
     if not bridge:
         raise RuntimeError("Missing GodfreyPerformerAnimationBridgeComponent")
 
-    forbidden: list[str] = []
-    for comp_label, component, _h, _d in iter_all_components(bp):
-        cls = component.get_class().get_name()
-        for token in FORBIDDEN_STEP2_COMPONENTS:
-            if token in cls:
-                forbidden.append(f"{comp_label} ({cls})")
-
-    auto_activate = None
-    for names in (["b_auto_activate", "bAutoActivate"],):
-        try:
-            auto_activate = bridge.get_editor_property(names[0])
-            break
-        except Exception:
-            try:
-                auto_activate = bridge.get_editor_property(names[1])
-                break
-            except Exception:
-                pass
-
+    auto_activate = _bridge_auto_activate(bridge)
     if auto_activate is not False:
-        raise RuntimeError(f"Bridge bAutoActivate must be False for step 2 (got {auto_activate!r})")
+        raise RuntimeError(f"Bridge bAutoActivate must be False (got {auto_activate!r})")
+
+    body_comp, _ = find_component(bp, "Body")
+    face_comp, _ = find_component(bp, "Face")
+    body_anim = _anim_class_name(body_comp)
+    face_anim = _anim_class_name(face_comp)
+
+    if "GodfreyBodyAnimInstance" not in body_anim:
+        raise RuntimeError(f"Body AnimClass must be GodfreyBodyAnimInstance (got {body_anim})")
+    if FACE_ANIM_TOKEN not in face_anim and face_anim != "None" and "Face" not in face_anim:
+        raise RuntimeError(f"Face AnimClass should remain stock MetaHuman Face_AnimBP (got {face_anim})")
+
+    return {
+        "body_anim": body_anim,
+        "face_anim": face_anim,
+        "bridge_inert": True,
+    }
+
+
+def audit_step2_blueprint(bp) -> dict[str, object]:
+    forbidden = _forbidden_components(bp, FORBIDDEN_STEP2_COMPONENTS)
     if forbidden:
         raise RuntimeError("Step 2 must not include other Godfrey/ACE components yet: " + ", ".join(forbidden))
 
+    bridge, _ = find_component_by_class(bp, "GodfreyPerformerAnimationBridgeComponent")
+    if not bridge:
+        raise RuntimeError("Missing GodfreyPerformerAnimationBridgeComponent")
+
     return {
         "bridge_present": True,
-        "bAutoActivate": auto_activate,
+        "bAutoActivate": _bridge_auto_activate(bridge),
         "forbidden_absent": True,
     }
 
@@ -244,23 +284,98 @@ def assign_body_anim_instance(bp) -> dict[str, str]:
 
 
 def audit_step3_blueprint(bp) -> dict[str, object]:
-    audit_step2_blueprint(bp)
+    forbidden = _forbidden_components(bp, FORBIDDEN_STEP2_COMPONENTS)
+    if forbidden:
+        raise RuntimeError("Step 3 must not include ACE/speech components yet: " + ", ".join(forbidden))
+    return audit_core_performer_stack(bp)
 
-    body_comp, _ = find_component(bp, "Body")
+
+def ensure_face_anim_bp(bp) -> dict[str, str]:
     face_comp, _ = find_component(bp, "Face")
-    body_anim = _anim_class_name(body_comp)
-    face_anim = _anim_class_name(face_comp)
+    if not face_comp:
+        raise RuntimeError("Face component not found")
 
-    if "GodfreyBodyAnimInstance" not in body_anim:
-        raise RuntimeError(f"Body AnimClass must be GodfreyBodyAnimInstance (got {body_anim})")
-    if FACE_ANIM_TOKEN not in face_anim and face_anim != "None":
-        log_face = face_anim
-        # Kristofer Face_AnimBP may appear as Face_AnimBP_C
-        if "Face" not in face_anim:
-            raise RuntimeError(f"Face AnimClass should remain stock MetaHuman Face_AnimBP (got {log_face})")
+    changes: dict[str, str] = {"Face.anim_before": _anim_class_name(face_comp)}
+    if FACE_ANIM_TOKEN in changes["Face.anim_before"] or "Face_AnimBP" in changes["Face.anim_before"]:
+        changes["Face.anim_class"] = changes["Face.anim_before"]
+        return changes
 
-    return {
-        "body_anim": body_anim,
-        "face_anim": face_anim,
-        "bridge_inert": True,
-    }
+    face_anim_bp = unreal.load_asset(FACE_ANIM_BP_PATH)
+    if not face_anim_bp:
+        raise RuntimeError(f"Missing {FACE_ANIM_BP_PATH}")
+
+    generated = face_anim_bp.generated_class() if hasattr(face_anim_bp, "generated_class") else None
+    anim_cls = generated or unreal.load_class(None, f"{FACE_ANIM_BP_PATH}.Face_AnimBP_C")
+    if not anim_cls:
+        raise RuntimeError(f"Could not load Face_AnimBP class from {FACE_ANIM_BP_PATH}")
+
+    prop = set_prop(face_comp, ["anim_class", "AnimClass"], anim_cls)
+    if not prop:
+        raise RuntimeError("Failed to set Face AnimClass")
+    changes["Face.anim_class"] = anim_cls.get_name()
+    return changes
+
+
+def configure_ace_curve_source(bp) -> dict[str, str]:
+    ace, ace_label = find_component_by_class(bp, "ACEAudioCurveSourceComponent")
+    if not ace:
+        raise RuntimeError("ACEAudioCurveSourceComponent not found on performer BP")
+
+    changes: dict[str, str] = {"ace_label": ace_label or ACE_CURVE_SOURCE_LABEL}
+    for names, value, key in (
+        (["b_auto_activate", "bAutoActivate"], False, "bAutoActivate"),
+        (["b_enable_attenuation_debug", "bEnableAttenuationDebug"], False, "bEnableAttenuationDebug"),
+    ):
+        if set_prop(ace, names, value):
+            changes[key] = str(value)
+    return changes
+
+
+def add_ace_curve_source(bp) -> bool:
+    return add_component_to_blueprint(bp, ACE_CURVE_SOURCE_LABEL, ACE_CURVE_SOURCE_CLASS, "root")
+
+
+def audit_step4_blueprint(bp) -> dict[str, object]:
+    forbidden = _forbidden_components(bp, FORBIDDEN_STEP4_COMPONENTS)
+    if forbidden:
+        raise RuntimeError("Step 4 must not include speech/warmup/capture yet: " + ", ".join(forbidden))
+
+    ace, ace_label = find_component_by_class(bp, "ACEAudioCurveSourceComponent")
+    if not ace:
+        raise RuntimeError("Missing ACEAudioCurveSourceComponent")
+
+    core = audit_core_performer_stack(bp)
+    auto_activate = None
+    for names in (["b_auto_activate", "bAutoActivate"],):
+        try:
+            auto_activate = ace.get_editor_property(names[0])
+            break
+        except Exception:
+            try:
+                auto_activate = ace.get_editor_property(names[1])
+                break
+            except Exception:
+                pass
+
+    if auto_activate is not False:
+        raise RuntimeError(f"ACE bAutoActivate must be False for step 4 (got {auto_activate!r})")
+
+    debug = None
+    for names in (["b_enable_attenuation_debug", "bEnableAttenuationDebug"],):
+        try:
+            debug = ace.get_editor_property(names[0])
+            break
+        except Exception:
+            try:
+                debug = ace.get_editor_property(names[1])
+                break
+            except Exception:
+                pass
+
+    if debug is not False:
+        raise RuntimeError(f"ACE bEnableAttenuationDebug must be False (got {debug!r})")
+
+    core["ace_present"] = True
+    core["ace_label"] = ace_label
+    core["ace_bAutoActivate"] = auto_activate
+    return core
