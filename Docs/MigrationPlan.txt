@@ -90,7 +90,7 @@ PHASE 6 — Exhibition wiring for Kristofer (one component at a time)
 Only after Phase 0–5 pass. Add in order, zoom-test after each:
   1. Godfrey performer BP shell around Kristofer (meshes only, no bridge)  [PASSED 2026-06-28]
   2. GodfreyPerformerAnimationBridge (bAutoActivate=false first)  [PASSED 2026-06-28]
-  3. Body anim instance  [SCRIPT READY]
+  3. Body anim instance  [PASSED 2026-06-28]
   4. ACE audio curve source
   5. Speech / performance state
   6. World Partition + exhibit placement
@@ -117,7 +117,7 @@ Step 3 (2026-06-28):
   - setup_phase6_step3_body_anim_instance.py — Body AnimClass = GodfreyBodyAnimInstance
   - Face stays stock Face_AnimBP; bridge remains bAutoActivate=false
 
-PASS GATE (step 3): zoom shirt 30+ s with GodfreyBodyAnimInstance on Body.
+PASS GATE (step 3): zoom shirt 30+ s with GodfreyBodyAnimInstance on Body.  PASSED.
 
 Stop at first step that breaks zoom.
 DO NOT USE AS ROLLBACK / DONOR
