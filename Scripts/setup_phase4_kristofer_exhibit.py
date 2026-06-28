@@ -48,16 +48,24 @@ def _configure_floor_mesh(comp: unreal.StaticMeshComponent) -> None:
 
 
 def ensure_floor(center: unreal.Vector) -> None:
-    for actor in actors().get_all_level_actors():
-        if actor.get_actor_label() == "Exhibit_Floor":
-            comp = actor.get_component_by_class(unreal.StaticMeshComponent)
-            if comp:
-                actor.set_actor_location(
-                    unreal.Vector(center.x, center.y, FLOOR_Z), False, True
-                )
-                _configure_floor_mesh(comp)
-            log("Exhibit_Floor already exists (reconfigured)")
-            return
+    loaded = [
+        a for a in actors().get_all_level_actors() if a.get_actor_label() == "Exhibit_Floor"
+    ]
+    if loaded:
+        actor = loaded[0]
+        comp = actor.get_component_by_class(unreal.StaticMeshComponent)
+        if comp:
+            actor.set_actor_location(
+                unreal.Vector(center.x, center.y, FLOOR_Z), False, True
+            )
+            _configure_floor_mesh(comp)
+        log("Exhibit_Floor already exists (reconfigured)")
+        if len(loaded) > 1:
+            unreal.log_warning(
+                "[Phase4Exhibit] Multiple Exhibit_Floor actors loaded — "
+                "run remove_duplicate_exhibit_floor.py from editor"
+            )
+        return
 
     mesh = unreal.load_asset(FLOOR_MESH)
     if not mesh:

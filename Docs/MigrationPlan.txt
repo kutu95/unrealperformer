@@ -56,6 +56,8 @@ Simple exhibit on Godfrey_World — floor, soft daylight, Kristofer only.
 
 Applied (Scripts/setup_phase4_kristofer_exhibit.py + restore/fix scripts):
   - Exhibit_Floor (50m plane at z=1, anti-flicker material/flags)
+  NOTE: Phase 4 originally left a duplicate floor WP package (2/O2); removed 2026-06-27.
+  Keep single package: 5/9Z/I0ISZ04GH0UUPDGL2KHG7Y.
   - Movable Lumen sun/skylight + Exhibit_Fill lights + manual exposure
   - User-tuned light intensities and performer placement (saved on exit)
   - BP_Kristofer exhibit framing; zoom stable 30+ seconds
@@ -64,13 +66,23 @@ PASS GATE: Zoom Kristofer — shirt stable 30+ seconds.  PASSED.
 Tagged: phase4-exhibit-stable
 
 ================================================================================
-PHASE 5 — Migrate stage geometry only
+PHASE 5 — Migrate stage geometry only  [APPLIED 2026-06-28 — editor UI]
 ================================================================================
-Import static mesh / lighting from Godfrey_Realtime_Stage.
-Still BP_Kristofer only, no performer stack.
-Re-test zoom.
+Headless Python spawn failed earlier (WP cell splits); backdrop/stage added via editor UI.
 
-Copy exhibition daylight setup from Godfrey_Realtime_Stage (HDRI/skylight/exhibit rigs).
+Applied (user in Godfrey_World):
+  - Stage backdrop (Plane + M_Redgate_Background / MI_Stage_Backdrop)
+  - Exhibit_Floor sand material (user-assigned)
+  - Stage lighting / exhibit layout saved on level
+  - Duplicate Exhibit_Floor WP package (2/O2) removed; single floor 5/9Z retained
+
+Scripts/docs: Docs/UE56_EditorScriptingGuidelines.md, verify_godfrey_exhibit.py,
+  save_stage_backdrop_transform.py (editor only). Do NOT run headless spawn scripts.
+
+Before ANY user PASS gate, run verify_godfrey_exhibit.py headless → RESULT: PASS.
+
+PASS GATE: Zoom Kristofer — shirt stable 30+ seconds with stage visible.  PASSED.
+Tagged: phase5-exhibit-stage-stable (pending user tag after push)
 
 ================================================================================
 PHASE 6 — Exhibition wiring for Kristofer (one component at a time)

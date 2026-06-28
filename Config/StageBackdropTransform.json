@@ -1,0 +1,8 @@
+{
+  "note": "Offset from BP_Kristofer keeps Stage_Backdrop in the same loaded WP cell. Re-tune in editor, then run save_stage_backdrop_transform.py.",
+  "location_mode": "offset_from_kristofer",
+  "offset": { "x": 0.0, "y": 0.0, "z": 80.0 },
+  "rotation": { "pitch": 0.0, "yaw": -90.0, "roll": 0.0 },
+  "scale": { "x": 12.0, "y": 8.0, "z": 1.0 },
+  "material": "/Game/Godfrey/Backgrounds/MI_Stage_Backdrop.MI_Stage_Backdrop"
+}
