@@ -38,7 +38,16 @@ ACE_CURVE_SOURCE_CLASS = "/Script/ACERuntime.ACEAudioCurveSourceComponent"
 ACE_CURVE_SOURCE_LABEL = "ACEAudioCurveSource"
 PERFORMANCE_STATE_CLASS = "/Script/UnrealPerformer.GodfreyPerformanceStateComponent"
 PERFORMANCE_STATE_LABEL = "GodfreyPerformanceState"
+ACE_WARMUP_CLASS = "/Script/UnrealPerformer.GodfreyAceWarmupComponent"
+ACE_WARMUP_LABEL = "GodfreyAceWarmup"
+DIRECT_SPEECH_CLASS = "/Script/UnrealPerformer.GodfreyDirectSpeechComponent"
+DIRECT_SPEECH_LABEL = "GodfreyDirectSpeech"
 FACE_ANIM_BP_PATH = "/Game/MetaHumans/Common/Face/Face_AnimBP"
+
+FORBIDDEN_STEP7_COMPONENTS = (
+    "GodfreyGazeReactionComponent",
+    "AudioCaptureComponent",
+)
 
 
 def set_prop(obj, names: list[str], value) -> str | None:
@@ -431,4 +440,125 @@ def audit_step5_blueprint(bp) -> dict[str, object]:
 
     core["performance_state_present"] = True
     core["performance_state_label"] = state_label
+    return core
+
+
+def configure_active_ace(bp) -> dict[str, str]:
+    ace, ace_label = find_component_by_class(bp, "ACEAudioCurveSourceComponent")
+    if not ace:
+        raise RuntimeError("ACEAudioCurveSourceComponent not found on performer BP")
+
+    changes: dict[str, str] = {"ace_label": ace_label or ACE_CURVE_SOURCE_LABEL}
+    for names, value, key in (
+        (["b_auto_activate", "bAutoActivate"], True, "bAutoActivate"),
+        (["b_enable_attenuation_debug", "bEnableAttenuationDebug"], False, "bEnableAttenuationDebug"),
+        (["volume", "Volume"], 1.0, "Volume"),
+    ):
+        if set_prop(ace, names, value):
+            changes[key] = str(value)
+    return changes
+
+
+def add_ace_warmup(bp) -> bool:
+    return add_component_to_blueprint(bp, ACE_WARMUP_LABEL, ACE_WARMUP_CLASS, "actor")
+
+
+def configure_ace_warmup(bp) -> dict[str, str]:
+    warmup, label = find_component_by_class(bp, "GodfreyAceWarmupComponent")
+    if not warmup:
+        raise RuntimeError("GodfreyAceWarmupComponent not found on performer BP")
+
+    changes: dict[str, str] = {"warmup_label": label or ACE_WARMUP_LABEL}
+    for names, value, key in (
+        (["b_warmup_on_begin_play", "bWarmupOnBeginPlay"], True, "bWarmupOnBeginPlay"),
+        (["ace_provider_name", "AceProviderName"], "LocalA2F-Mark", "AceProviderName"),
+        (["warmup_sample_rate", "WarmupSampleRate"], 24000, "WarmupSampleRate"),
+    ):
+        if set_prop(warmup, names, value):
+            changes[key] = str(value)
+    return changes
+
+
+def add_direct_speech(bp) -> bool:
+    return add_component_to_blueprint(bp, DIRECT_SPEECH_LABEL, DIRECT_SPEECH_CLASS, "actor")
+
+
+def configure_direct_speech_lipsync_only(bp) -> dict[str, str]:
+    speech, label = find_component_by_class(bp, "GodfreyDirectSpeechComponent")
+    if not speech:
+        raise RuntimeError("GodfreyDirectSpeechComponent not found on performer BP")
+
+    changes: dict[str, str] = {"speech_label": label or DIRECT_SPEECH_LABEL}
+    for names, value, key in (
+        (["godfrey_brain_base_url", "GodfreyBrainBaseUrl"], "http://localhost:3000", "GodfreyBrainBaseUrl"),
+        (["ace_provider_name", "AceProviderName"], "LocalA2F-Mark", "AceProviderName"),
+        (["stream_sample_rate", "StreamSampleRate"], 24000, "StreamSampleRate"),
+        (["stream_num_channels", "StreamNumChannels"], 1, "StreamNumChannels"),
+        (["b_begin_thinking_on_submit", "bBeginThinkingOnSubmit"], False, "bBeginThinkingOnSubmit"),
+        (["b_return_to_listening_after_reply", "bReturnToListeningAfterReply"], False, "bReturnToListeningAfterReply"),
+        (["b_enable_dev_keyboard_submit", "bEnableDevKeyboardSubmit"], True, "bEnableDevKeyboardSubmit"),
+        (["b_auto_submit_test_prompt_on_begin_play", "bAutoSubmitTestPromptOnBeginPlay"], False, "bAutoSubmitTestPromptOnBeginPlay"),
+        (
+            ["default_test_prompt", "DefaultTestPrompt"],
+            "Tell me about your voyage to the New World.",
+            "DefaultTestPrompt",
+        ),
+    ):
+        if set_prop(speech, names, value):
+            changes[key] = str(value)
+    return changes
+
+
+def audit_ace_active(bp) -> dict[str, object]:
+    ace, ace_label = find_component_by_class(bp, "ACEAudioCurveSourceComponent")
+    if not ace:
+        raise RuntimeError("Missing ACEAudioCurveSourceComponent")
+
+    auto_activate = _get_bool_prop(ace, ("b_auto_activate", "bAutoActivate"))
+    if auto_activate is not True:
+        raise RuntimeError(f"ACE bAutoActivate must be True (got {auto_activate!r})")
+
+    return {
+        "ace_present": True,
+        "ace_label": ace_label,
+        "ace_bAutoActivate": auto_activate,
+    }
+
+
+def audit_step7_speech_lipsync_blueprint(bp) -> dict[str, object]:
+    forbidden = _forbidden_components(bp, FORBIDDEN_STEP7_COMPONENTS)
+    if forbidden:
+        raise RuntimeError("Step 7 must not include gaze/mic capture yet: " + ", ".join(forbidden))
+
+    bridge, _ = find_component_by_class(bp, "GodfreyPerformerAnimationBridgeComponent")
+    if not bridge:
+        raise RuntimeError("Missing GodfreyPerformerAnimationBridgeComponent")
+    bridge_auto = _bridge_auto_activate(bridge)
+    if bridge_auto is not False:
+        raise RuntimeError(f"Bridge bAutoActivate must stay False (got {bridge_auto!r})")
+
+    state, _ = find_component_by_class(bp, "GodfreyPerformanceStateComponent")
+    if not state:
+        raise RuntimeError("Missing GodfreyPerformanceStateComponent")
+    if _get_bool_prop(state, ("b_auto_speaking_state_from_utterance", "bAutoSpeakingStateFromUtterance")) is not False:
+        raise RuntimeError("PerformanceState bAutoSpeakingStateFromUtterance must stay False")
+    if _get_bool_prop(state, ("b_route_performance_cues_to_states", "bRoutePerformanceCuesToStates")) is not False:
+        raise RuntimeError("PerformanceState bRoutePerformanceCuesToStates must stay False")
+
+    warmup, _ = find_component_by_class(bp, "GodfreyAceWarmupComponent")
+    if not warmup:
+        raise RuntimeError("Missing GodfreyAceWarmupComponent")
+    if _get_bool_prop(warmup, ("b_warmup_on_begin_play", "bWarmupOnBeginPlay")) is not True:
+        raise RuntimeError("AceWarmup bWarmupOnBeginPlay must be True")
+
+    speech, _ = find_component_by_class(bp, "GodfreyDirectSpeechComponent")
+    if not speech:
+        raise RuntimeError("Missing GodfreyDirectSpeechComponent")
+
+    core = audit_core_performer_stack(bp)
+    core.update(audit_ace_active(bp))
+    core["ace_warmup_present"] = True
+    core["direct_speech_present"] = True
+    core["bridge_inert"] = True
+    core["body_actions_disabled"] = True
     return core

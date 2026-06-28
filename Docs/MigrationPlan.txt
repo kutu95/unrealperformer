@@ -149,9 +149,29 @@ PASS GATE (step 6): verify_godfrey_exhibit.py PASS + zoom shirt 30+ s (full Phas
 Tagged: phase6-exhibit-wiring-stable (pending push)
 
 PHASE 6 COMPLETE — full inert exhibition stack on Godfrey_World without shirt explosion at zoom.
-Next phase (if any): activate bridge/ACE/speech one flag at a time — only after explicit plan update.
+Tagged: phase6-exhibit-wiring-stable
 
-Stop at first step that breaks zoom.
+================================================================================
+PHASE 7 — Speech + lip sync (body actions still OFF)
+================================================================================
+One-shot chunk (2026-06-28): port speech C++ from Test_Live_Audio, wire active ACE + warmup +
+DirectSpeech on BP_Godfrey_Performer. Bridge montages and performance-state auto routing stay OFF.
+
+C++ ported to UnrealPerformer module:
+  - GodfreyDirectSpeechComponent, GodfreyAceWarmupComponent
+  - AsyncActionStreamGodfreySpeech, GodfreyPcmStreamSession
+  - UnrealPerformerGodfreySettings + ACE startup in UnrealPerformer.cpp
+
+Script:
+  - setup_phase7_step1_speech_lipsync_only.py (headless BP edit)
+
+ON:  ACE bAutoActivate=true, AceWarmup, DirectSpeech (dev key G)
+OFF: bridge bAutoActivate, performance auto utterance/cues, montages, gaze, mic capture
+
+PASS GATE: PIE on Godfrey_World, Godfrey Brain at localhost:3000, press G — hear voice + lip sync,
+no body gesture montages. Zoom-test shirt 30+ s after speech test.
+
+Stop at first step that breaks zoom or speech.
 DO NOT USE AS ROLLBACK / DONOR
 ================================================================================
 - BP_Gavin.uasset (reference hash only)
